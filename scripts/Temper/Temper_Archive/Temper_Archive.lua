@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.1
+-- @version 1.3.2
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
@@ -1001,7 +1001,11 @@ local function render_list(ctx, state)
         R.ImGui_PopStyleColor(ctx, 1)
       end
       local font_b = rsg_theme and rsg_theme.font_bold
-      local lc = state._clipper
+      -- ImGui_ListClipper objects are frame-scoped — they MUST be created
+      -- inside the same defer iteration that uses them. Stashing one in
+      -- `state` at script init causes a stale-userdata crash on the first
+      -- render frame after a folder scan completes.
+      local lc = R.ImGui_CreateListClipper(ctx)
       R.ImGui_ListClipper_Begin(lc, #vis, CONFIG.row_h)
       while R.ImGui_ListClipper_Step(lc) do
         local disp_start, disp_end = R.ImGui_ListClipper_GetDisplayRange(lc)
@@ -1174,7 +1178,6 @@ end
 
 do
   local ctx = reaper.ImGui_CreateContext("Temper Archive##archive")
-  local clipper = reaper.ImGui_CreateListClipper(ctx)
 
   -- Attach fonts before the first frame.
   if type(rsg_theme) == "table" and rsg_theme.attach_fonts then
@@ -1218,7 +1221,6 @@ do
     footer_warning     = nil,
     footer_warning_ts  = 0,
     should_close       = false,
-    _clipper           = clipper,
   }
 
   load_settings(state)
