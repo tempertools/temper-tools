@@ -1,5 +1,5 @@
 -- @description Temper Slice Mini -- Stereo to Mono WAV Converter
--- @version 1.1.2
+-- @version 1.1.3
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Slice_Mini.lua
@@ -1073,7 +1073,17 @@ end
 do
   if not check_instance_guard() then return end
 
-  local ctx = reaper.ImGui_CreateContext("Temper Slice Mini##tslice")
+  -- Guard ReaImGui's short-lived-resource rate limit (see Temper_Vortex.lua).
+  local _ctx_ok, ctx = pcall(reaper.ImGui_CreateContext, "Temper Slice Mini##tslice")
+  if not _ctx_ok or not ctx then
+    reaper.ShowMessageBox(
+      "Temper Slice Mini could not start because ReaImGui is still " ..
+      "cleaning up from a previous instance.\n\n" ..
+      "Close any existing Slice Mini window, wait ~15 seconds, then try again.\n" ..
+      "If it keeps happening, restart REAPER.",
+      "Temper Slice Mini", 0)
+    return
+  end
 
   -- Load theme and attach fonts
   pcall(dofile, _lib .. "rsg_theme.lua")

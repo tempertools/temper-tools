@@ -1,5 +1,5 @@
 -- @description Temper Slice
--- @version 3.2.3
+-- @version 3.2.4
 -- @author Temper Tools
 -- @provides
 --   [main] .
@@ -2865,7 +2865,17 @@ end
 do
   if not check_instance_guard() then return end
 
-  local ctx = R.ImGui_CreateContext("Temper Slice##slice")
+  -- Guard ReaImGui's short-lived-resource rate limit (see Temper_Vortex.lua).
+  local _ctx_ok, ctx = pcall(R.ImGui_CreateContext, "Temper Slice##slice")
+  if not _ctx_ok or not ctx then
+    reaper.ShowMessageBox(
+      "Temper Slice could not start because ReaImGui is still cleaning " ..
+      "up from a previous instance.\n\n" ..
+      "Close any existing Slice window, wait ~15 seconds, then try again.\n" ..
+      "If it keeps happening, restart REAPER.",
+      "Temper Slice", 0)
+    return
+  end
   if type(rsg_theme) == "table" then rsg_theme.attach_fonts(ctx) end
 
   if lic then lic.configure({

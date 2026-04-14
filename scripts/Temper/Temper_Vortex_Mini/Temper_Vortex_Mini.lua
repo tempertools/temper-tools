@@ -1,5 +1,5 @@
 -- @description Temper Vortex Mini -- Single-Item Layer Randomizer
--- @version 1.14.34
+-- @version 1.14.35
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex_Mini.lua
@@ -1643,7 +1643,17 @@ end
 do
   math.randomseed(os.time())
 
-  local ctx = reaper.ImGui_CreateContext("Temper Vortex Mini##vmini")
+  -- Guard ReaImGui's short-lived-resource rate limit (see Temper_Vortex.lua).
+  local _ctx_ok, ctx = pcall(reaper.ImGui_CreateContext, "Temper Vortex Mini##vmini")
+  if not _ctx_ok or not ctx then
+    reaper.ShowMessageBox(
+      "Temper Vortex Mini could not start because ReaImGui is still " ..
+      "cleaning up from a previous instance.\n\n" ..
+      "Close any existing Vortex Mini window, wait ~15 seconds, then try again.\n" ..
+      "If it keeps happening, restart REAPER.",
+      "Temper Vortex Mini", 0)
+    return
+  end
   -- RSG-118: 400x260 hard constraint (board-approved). Enforced every frame in loop().
 
   -- Load theme and attach fonts before any draw call.

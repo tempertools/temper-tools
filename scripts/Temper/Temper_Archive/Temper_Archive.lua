@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.3
+-- @version 1.3.4
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
@@ -1173,7 +1173,17 @@ end
 -- ============================================================
 
 do
-  local ctx = reaper.ImGui_CreateContext("Temper Archive##archive")
+  -- Guard ReaImGui's short-lived-resource rate limit (see Temper_Vortex.lua).
+  local _ctx_ok, ctx = pcall(reaper.ImGui_CreateContext, "Temper Archive##archive")
+  if not _ctx_ok or not ctx then
+    reaper.ShowMessageBox(
+      "Temper Archive could not start because ReaImGui is still cleaning " ..
+      "up from a previous instance.\n\n" ..
+      "Close any existing Archive window, wait ~15 seconds, then try again.\n" ..
+      "If it keeps happening, restart REAPER.",
+      "Temper Archive", 0)
+    return
+  end
   -- ListClipper is a subclassed resource — without ImGui_Attach it is
   -- considered short-lived and ReaImGui both (a) invalidates the userdata
   -- between frames, and (b) rate-limits repeated creation. Attach persists

@@ -1,5 +1,5 @@
 -- @description Temper Vortex
--- @version 1.7.30
+-- @version 1.7.31
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex.lua
@@ -3979,7 +3979,23 @@ elseif not _RSG_TEST_MODE then
   reaper.ShowConsoleMsg("[Temper Vortex] instance guard: ALLOWED (starting fresh instance)\n")
   reaper.SetExtState(_EXT_SEC, "instance_ts", tostring(reaper.time_precise()), false)
 
-  local ctx = reaper.ImGui_CreateContext("Temper Vortex")
+  -- ReaImGui rate-limits CreateContext at the same call site to prevent
+  -- runaway context churn. If a prior instance's defer loop was killed
+  -- (script terminated, REAPER restart mid-defer, etc.), the GC window can
+  -- still be open when the user relaunches. Surface a friendly message
+  -- instead of a raw Lua error, and clear the instance_ts sentinel so
+  -- the guard doesn't also block the next retry.
+  local _ctx_ok, ctx = pcall(reaper.ImGui_CreateContext, "Temper Vortex")
+  if not _ctx_ok or not ctx then
+    reaper.SetExtState(_EXT_SEC, "instance_ts", "", false)
+    reaper.ShowMessageBox(
+      "Temper Vortex could not start because ReaImGui is still cleaning " ..
+      "up from a previous instance.\n\n" ..
+      "Close any existing Vortex window, wait ~15 seconds, then try again.\n" ..
+      "If it keeps happening, restart REAPER.",
+      "Temper Vortex", 0)
+    return
+  end
   local _WIN_W = 600
   local _MIN_WIN_H = 280
   local _MAX_WIN_H = 1200

@@ -1,5 +1,5 @@
 -- @description Temper Imprint -- Property Selection & Paste Properties
--- @version 1.3.6
+-- @version 1.3.7
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Imprint.lua
@@ -1022,7 +1022,17 @@ reaper.SetExtState(_IMP_NS, "instance_ts", tostring(reaper.time_precise()), fals
 -- ============================================================
 
 do
-  local ctx = reaper.ImGui_CreateContext("Temper Imprint##imprint")
+  -- Guard ReaImGui's short-lived-resource rate limit (see Temper_Vortex.lua).
+  local _ctx_ok, ctx = pcall(reaper.ImGui_CreateContext, "Temper Imprint##imprint")
+  if not _ctx_ok or not ctx then
+    reaper.ShowMessageBox(
+      "Temper Imprint could not start because ReaImGui is still cleaning " ..
+      "up from a previous instance.\n\n" ..
+      "Close any existing Imprint window, wait ~15 seconds, then try again.\n" ..
+      "If it keeps happening, restart REAPER.",
+      "Temper Imprint", 0)
+    return
+  end
   if type(rsg_theme) == "table" then rsg_theme.attach_fonts(ctx) end
 
   local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
