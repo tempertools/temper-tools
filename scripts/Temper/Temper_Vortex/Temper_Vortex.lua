@@ -1,5 +1,5 @@
 -- @description Temper Vortex
--- @version 1.7.31
+-- @version 1.7.32
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex.lua
@@ -3968,15 +3968,12 @@ elseif not _RSG_TEST_MODE then
   -- a race where REAPER's re-launch sequence started the new instance before
   -- cleanup finished, so the new instance saw no key and opened a duplicate.
   local _inst_ts = reaper.GetExtState(_EXT_SEC, "instance_ts")
-  reaper.ShowConsoleMsg("[Temper Vortex] instance guard: ts='" .. _inst_ts .. "' now=" .. tostring(reaper.time_precise()) .. "\n")
   if _inst_ts ~= "" and tonumber(_inst_ts) and (reaper.time_precise() - tonumber(_inst_ts)) < 1.0 then
-    reaper.ShowConsoleMsg("[Temper Vortex] instance guard: BLOCKED (duplicate detected)\n")
     reaper.ShowMessageBox(
       "Temper Vortex is already running.\nClose the existing window before opening a new instance.",
       "Temper Vortex", 0)
     return
   end
-  reaper.ShowConsoleMsg("[Temper Vortex] instance guard: ALLOWED (starting fresh instance)\n")
   reaper.SetExtState(_EXT_SEC, "instance_ts", tostring(reaper.time_precise()), false)
 
   -- ReaImGui rate-limits CreateContext at the same call site to prevent
