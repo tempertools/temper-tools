@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.4
+-- @version 1.3.5
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
@@ -696,11 +696,11 @@ function archive_actions.toggle_hide_archived(state)
 end
 
 function archive_actions.archive(state)
-  if state.status ~= "idle" then
-    state.footer_warning    = "Archive not available"
-    state.footer_warning_ts = reaper.time_precise()
-    return
-  end
+  -- archive_begin validates state.status == "ready" plus every other
+  -- precondition (output dir set, writable, non-empty queue) and emits the
+  -- right flash_warning for each failure mode. Do not add a redundant
+  -- precondition check here — a prior pass gated on "idle" which rejected
+  -- the normal post-scan "ready" state and made Archive unusable.
   archive_begin(state)
 end
 
