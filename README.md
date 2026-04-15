@@ -46,6 +46,13 @@ Trial and licensing details are handled inside each script on first
 launch. Full purchase options live at
 [tempertools.com](https://tempertools.com).
 
+## Requirements
+
+- [REAPER](https://www.reaper.fm)
+- [ReaPack](https://reapack.com)
+- [ReaImGui](https://github.com/cfillion/reaimgui), installable via
+  ReaPack. Every Temper script uses ReaImGui for its interface.
+
 ## Support
 
 Questions, bug reports, and feature requests:
