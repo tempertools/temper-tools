@@ -270,12 +270,16 @@ local function _ps_quote(s)
 end
 
 local function _build_win_cmd(src_abs, dest_part)
-  -- Use single quotes for paths INSIDE the -Command "..." string so they
-  -- don't collide with the outer double quotes.
-  -- -LiteralPath avoids glob expansion on folders whose names contain
-  -- PowerShell glob metacharacters ([, ], *, ?).
+  -- Use [System.IO.Compression.ZipFile]::CreateFromDirectory instead of
+  -- Compress-Archive. PS 5.1's Compress-Archive buffers the entire archive
+  -- through a MemoryStream and throws "Stream was too long" at the 2 GB
+  -- boundary. CreateFromDirectory streams directly to a FileStream and has
+  -- no practical size limit. Output is standard PKZIP in both cases so
+  -- _verify_zip still works.
+  -- Single quotes inside the outer -Command "..." keep paths literal and
+  -- sidestep glob expansion on folders whose names contain [ ] * ?.
   return string.format(
-    'powershell -NoProfile -NonInteractive -Command "Compress-Archive -LiteralPath %s -DestinationPath %s -Force"',
+    'powershell -NoProfile -NonInteractive -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory(%s, %s, [System.IO.Compression.CompressionLevel]::Optimal, $true)"',
     _ps_quote(src_abs), _ps_quote(dest_part)
   )
 end
@@ -355,11 +359,22 @@ end
 
 -- Write a temp script that compresses and writes a sentinel file on exit.
 -- The sentinel contains "0" on success or the error message on failure.
+--
+-- Uses [System.IO.Compression.ZipFile]::CreateFromDirectory instead of
+-- Compress-Archive. PS 5.1's Compress-Archive buffers the whole archive in
+-- memory and throws "Stream was too long" at the 2 GB boundary. The .NET
+-- API streams directly to disk and has no size limit. Same PKZIP output.
 local function _write_win_job(src_abs, dest_part, sentinel, script_path)
   local f = io.open(script_path, "w")
   if not f then return false end
   f:write(string.format(
-    "try { Compress-Archive -LiteralPath %s -DestinationPath %s -Force; Set-Content -Path %s -Value '0' -NoNewline } catch { Set-Content -Path %s -Value $_.Exception.Message -NoNewline }\n",
+    "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+    .. "try {\n"
+    .. "  [System.IO.Compression.ZipFile]::CreateFromDirectory(%s, %s, [System.IO.Compression.CompressionLevel]::Optimal, $true)\n"
+    .. "  Set-Content -Path %s -Value '0' -NoNewline\n"
+    .. "} catch {\n"
+    .. "  Set-Content -Path %s -Value $_.Exception.Message -NoNewline\n"
+    .. "}\n",
     _ps_quote(src_abs), _ps_quote(dest_part), _ps_quote(sentinel), _ps_quote(sentinel)
   ))
   f:close()

@@ -7,7 +7,7 @@
   </metadata>
   <category name="Temper">
     <reapack name="Temper_Vortex.lua" type="script" desc="Temper Vortex">
-      <version name="1.7.32" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.7.32" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Vortex/Temper_Vortex.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/Temper_Vortex.lua</source>
         <source file="Temper_Vortex/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/lib/rsg_actions.lua</source>
         <source file="Temper_Vortex/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/lib/rsg_activation_dialog.lua</source>
@@ -32,7 +32,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Vortex_Mini.lua" type="script" desc="Temper Vortex Mini -- Single-Item Layer Randomizer">
-      <version name="1.14.35" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.14.35" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Vortex_Mini/Temper_Vortex_Mini.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex_Mini/Temper_Vortex_Mini.lua</source>
         <source file="Temper_Vortex_Mini/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex_Mini/lib/rsg_actions.lua</source>
         <source file="Temper_Vortex_Mini/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex_Mini/lib/rsg_activation_dialog.lua</source>
@@ -55,7 +55,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Imprint.lua" type="script" desc="Temper Imprint -- Property Selection &amp; Paste Properties">
-      <version name="1.3.7" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.3.7" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Imprint/Temper_Imprint.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Imprint/Temper_Imprint.lua</source>
         <source file="Temper_Imprint/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Imprint/lib/rsg_actions.lua</source>
         <source file="Temper_Imprint/lib/rsg_pp_apply.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Imprint/lib/rsg_pp_apply.lua</source>
@@ -73,7 +73,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Mark.lua" type="script" desc="Temper Mark -- Intelligent Take Marker Detection &amp; Embedding">
-      <version name="1.4.3" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.4.3" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Mark/Temper_Mark.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Mark/Temper_Mark.lua</source>
         <source file="Temper_Mark/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Mark/lib/rsg_actions.lua</source>
         <source file="Temper_Mark/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Mark/lib/rsg_activation_dialog.lua</source>
@@ -96,7 +96,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Alloy.lua" type="script" desc="Temper Alloy -- WAV Variant Merger">
-      <version name="1.2.2" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.2.2" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Alloy/Temper_Alloy.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/Temper_Alloy.lua</source>
         <source file="Temper_Alloy/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/lib/rsg_actions.lua</source>
         <source file="Temper_Alloy/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/lib/rsg_activation_dialog.lua</source>
@@ -116,7 +116,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Slice.lua" type="script" desc="Temper Slice">
-      <version name="3.2.4" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="3.2.4" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Slice/Temper_Slice.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/Temper_Slice.lua</source>
         <source file="Temper_Slice/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/lib/rsg_actions.lua</source>
         <source file="Temper_Slice/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/lib/rsg_activation_dialog.lua</source>
@@ -134,7 +134,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Slice_Mini.lua" type="script" desc="Temper Slice Mini -- Stereo to Mono WAV Converter">
-      <version name="1.1.3" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.1.3" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Slice_Mini/Temper_Slice_Mini.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice_Mini/Temper_Slice_Mini.lua</source>
         <source file="Temper_Slice_Mini/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice_Mini/lib/rsg_actions.lua</source>
         <source file="Temper_Slice_Mini/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice_Mini/lib/rsg_activation_dialog.lua</source>
@@ -153,7 +153,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Archive.lua" type="script" desc="Temper Archive -- Cross-platform project folder archival">
-      <version name="1.3.5" author="Temper Tools" time="2026-04-15T00:21:30Z">
+      <version name="1.3.6" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Archive/Temper_Archive.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Archive/Temper_Archive.lua</source>
         <source file="Temper_Archive/lib/rsg_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Archive/lib/rsg_actions.lua</source>
         <source file="Temper_Archive/lib/rsg_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Archive/lib/rsg_activation_dialog.lua</source>
