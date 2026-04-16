@@ -394,8 +394,12 @@ local function _write_mac_job(src_abs, dest_part, sentinel, script_path)
   return true
 end
 
---- Launch async compress. Returns sentinel_path, dest_part, script_path on
---- success, or nil, error_message on validation failure.
+--- Launch async compress. Returns sentinel_path, dest_part, script_path,
+--- handle on success, or nil, error_message on validation failure.
+--- The caller MUST store the handle and pass it to compress_poll or
+--- compress_cancel so it is closed only after the child exits. If the
+--- handle is orphaned, Lua's GC calls pclose() which blocks the main
+--- thread until compression finishes — freezing REAPER.
 function M.compress_start(src_dir, dest_final)
   if not src_dir or src_dir == "" then return nil, "source path is empty" end
   if not dest_final or dest_final == "" then return nil, "destination path is empty" end
@@ -409,19 +413,17 @@ function M.compress_start(src_dir, dest_final)
   _remove_silent(dest_part)
   _remove_silent(sentinel)
 
-  local ok
+  local ok, handle
   if platform == "win" then
     ok = _write_win_job(src_dir, dest_part, sentinel, script_path)
     if ok then
-      -- Launch detached via `start /B`: cmd spawns PowerShell as a
-      -- background process then exits immediately, so os.execute returns
-      -- without blocking. The sentinel file signals completion.
-      --
-      -- Prior approach used io.popen, but Lua's GC calls pclose() on
-      -- orphaned handles, which blocks the main thread waiting for the
-      -- child process to finish -- freezing REAPER for large archives.
-      os.execute(string.format(
-        'start "" /B powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"',
+      -- io.popen returns immediately — the child runs in the background.
+      -- The handle MUST be stored by the caller and closed only after the
+      -- sentinel file appears (i.e. after the child has exited). If the
+      -- handle is orphaned, Lua's GC calls pclose() which blocks the main
+      -- thread for the entire duration of compression, freezing REAPER.
+      handle = io.popen(string.format(
+        'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"',
         script_path
       ))
     end
@@ -433,16 +435,21 @@ function M.compress_start(src_dir, dest_final)
     end
   end
   if not ok then return nil, "failed to write job script" end
-  return sentinel, dest_part, script_path
+  return sentinel, dest_part, script_path, handle
 end
 
 --- Poll for async compress completion. Returns nil while still running.
 --- On completion returns (ok, err, bytes, full_err) matching compress().
-function M.compress_poll(sentinel, dest_part, dest_final, script_path)
+--- handle is the io.popen handle from compress_start; closed here once
+--- the child has exited (sentinel exists ⇒ child wrote it ⇒ safe to close).
+function M.compress_poll(sentinel, dest_part, dest_final, script_path, handle)
   local f = io.open(sentinel, "r")
   if not f then return nil end  -- still running
   local content = f:read("*a")
   f:close()
+  -- Child has exited (it wrote the sentinel). Safe to close the pipe now;
+  -- pclose returns immediately because the process is already gone.
+  if handle then pcall(function() handle:close() end) end
   _remove_silent(sentinel)
   _remove_silent(script_path)
 
@@ -477,7 +484,11 @@ end
 --- Clean up tracking files when user cancels mid-compress.
 --- The background process may still complete; its orphaned _tmp.zip
 --- will be cleaned up by the next compress_start for the same dest.
-function M.compress_cancel(sentinel, dest_part, script_path)
+--- handle: the io.popen handle from compress_start. Closing while the
+--- child is still running will block briefly, but cancel is user-initiated
+--- so a short stall is acceptable (and unavoidable without kill).
+function M.compress_cancel(sentinel, dest_part, script_path, handle)
+  if handle then pcall(function() handle:close() end) end
   _remove_silent(sentinel)
   _remove_silent(script_path)
   _remove_silent(dest_part)

@@ -403,7 +403,8 @@ local function archive_tick(state)
       archive.compress_cancel(
         state._compress_job.sentinel,
         state._compress_job.dest_part,
-        state._compress_job.script_path
+        state._compress_job.script_path,
+        state._compress_job.handle
       )
       state._compress_job = nil
     end
@@ -427,13 +428,13 @@ local function archive_tick(state)
   if state._compress_job then
     local job = state._compress_job
     local ok, err, bytes, full_err = archive.compress_poll(
-      job.sentinel, job.dest_part, job.dest_final, job.script_path
+      job.sentinel, job.dest_part, job.dest_final, job.script_path, job.handle
     )
     if ok == nil then
       -- Timeout guard: fail if background process has been silent too long.
       if state._compress_start_ts
          and (reaper.time_precise() - state._compress_start_ts) > CONFIG.compress_timeout_sec then
-        archive.compress_cancel(job.sentinel, job.dest_part, job.script_path)
+        archive.compress_cancel(job.sentinel, job.dest_part, job.script_path, job.handle)
         state._compress_job = nil
         local row = state.current_row
         row.error = "compress timed out after " .. CONFIG.compress_timeout_sec .. "s"
@@ -498,7 +499,7 @@ local function archive_tick(state)
 
   -- Launch background compress.
   state.current_stage = "compressing"
-  local sentinel, dest_part, script_path = archive.compress_start(row.path, dest_final)
+  local sentinel, dest_part, script_path, handle = archive.compress_start(row.path, dest_final)
   if not sentinel then
     row.error     = dest_part or "unknown error"  -- error in 2nd return
     row.valid     = false
@@ -519,6 +520,7 @@ local function archive_tick(state)
     dest_part   = dest_part,
     dest_final  = dest_final,
     script_path = script_path,
+    handle      = handle,
   }
   state._compress_start_ts = reaper.time_precise()
 end
