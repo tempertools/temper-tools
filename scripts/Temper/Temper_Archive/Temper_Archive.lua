@@ -3,13 +3,13 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_sha256.lua
---   [nomain] lib/rsg_license.lua
---   [nomain] lib/rsg_activation_dialog.lua
---   [nomain] lib/rsg_actions.lua
---   [nomain] lib/rsg_platform.lua
---   [nomain] lib/rsg_archive.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_sha256.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_platform.lua
+--   [nomain] lib/temper_archive.lua
 -- @about
 --   Temper Archive scans a source directory of audio project folders,
 --   flags each as already-archived / pending / invalid, and sequentially
@@ -98,13 +98,13 @@ local _NS = "TEMPER_Archive"
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local rsg_actions = dofile(_lib .. "rsg_actions.lua")
-local platform    = dofile(_lib .. "rsg_platform.lua")
-local archive     = dofile(_lib .. "rsg_archive.lua")
+local rsg_actions = dofile(_lib .. "temper_actions.lua")
+local platform    = dofile(_lib .. "temper_platform.lua")
+local archive     = dofile(_lib .. "temper_archive.lua")
 
--- Theme is set on the global `rsg_theme` table by the lib's dofile.
-pcall(dofile, _lib .. "rsg_theme.lua")
-local SC = (rsg_theme and rsg_theme.SC) or {}
+-- Theme is set on the global `temper_theme` table by the lib's dofile.
+pcall(dofile, _lib .. "temper_theme.lua")
+local SC = (temper_theme and temper_theme.SC) or {}
 
 -- ============================================================
 -- Constants derived from theme
@@ -591,7 +591,7 @@ local function render_title_bar(ctx, state, lic, lic_status)
   -- Background (full width from top edge)
   R.ImGui_DrawList_AddRectFilled(dl, wx, wy, wx + ww, wy + CONFIG.title_bar_h, COL.TITLE_BAR)
   -- Title text
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_DrawList_AddText(dl, wx + 12, wy + 7, COL.PRIMARY, "TEMPER - ARCHIVE")
   if font_b then R.ImGui_PopFont(ctx) end
@@ -735,7 +735,7 @@ local function render_controls(ctx, state)
   local hide_w = CONFIG.hide_btn_w
   local arc_w  = CONFIG.archive_btn_w
 
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   R.ImGui_PushStyleVar(ctx, R.ImGui_StyleVar_FrameRounding(),   4)
@@ -1001,7 +1001,7 @@ local function render_list(ctx, state)
         R.ImGui_Text(ctx, "  All folders are hidden by the current filter.")
         R.ImGui_PopStyleColor(ctx, 1)
       end
-      local font_b = rsg_theme and rsg_theme.font_bold
+      local font_b = temper_theme and temper_theme.font_bold
       local lc = state._clipper
       R.ImGui_ListClipper_Begin(lc, #vis, CONFIG.row_h)
       while R.ImGui_ListClipper_Step(lc) do
@@ -1120,7 +1120,7 @@ local function render_footer(ctx, state)
 
   -- Vertically center text within footer_h (font is ~13px).
   local text_y = y + math.floor((CONFIG.footer_h - 13) * 0.5)
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_DrawList_AddText(dl, x + 2, text_y, left_col, left_text)
   if right_text ~= "" then
@@ -1193,12 +1193,12 @@ do
   reaper.ImGui_Attach(ctx, clipper)
 
   -- Attach fonts before the first frame.
-  if type(rsg_theme) == "table" and rsg_theme.attach_fonts then
-    rsg_theme.attach_fonts(ctx)
+  if type(temper_theme) == "table" and temper_theme.attach_fonts then
+    temper_theme.attach_fonts(ctx)
   end
 
   -- License gate (optional; pcall-wrapped so script works without license libs).
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then lic = nil end
   if lic then lic.configure({
     namespace    = "TEMPER_Archive",
@@ -1282,7 +1282,7 @@ do
       end
     end
 
-    local n_theme = (rsg_theme and rsg_theme.push) and rsg_theme.push(ctx) or 0
+    local n_theme = (temper_theme and temper_theme.push) and temper_theme.push(ctx) or 0
     -- Match Vortex Mini / Alloy: outer window frame = PANEL (lighter grey),
     -- child list overlays on top with SC.WINDOW (near-black) for contrast.
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), COL.PANEL)
@@ -1310,7 +1310,7 @@ do
       reaper.ImGui_End(ctx)
     end
 
-    if rsg_theme and rsg_theme.pop then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme and temper_theme.pop then temper_theme.pop(ctx, n_theme) end
     reaper.ImGui_PopStyleColor(ctx, 1)
 
     if open and not state.should_close then

@@ -3,14 +3,14 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Alloy.lua
---   [nomain] lib/rsg_wav_io.lua
---   [nomain] lib/rsg_alloy_merge.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_mediadb.lua
---   [nomain] lib/rsg_license.lua
---   [nomain] lib/rsg_activation_dialog.lua
---   [nomain] lib/rsg_sha256.lua
---   [nomain] lib/rsg_actions.lua
+--   [nomain] lib/temper_wav_io.lua
+--   [nomain] lib/temper_alloy_merge.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_mediadb.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_sha256.lua
+--   [nomain] lib/temper_actions.lua
 -- @about
 --   Temper Alloy scans folders or MediaDB, groups WAV variants by naming
 --   pattern, and merges them into consolidated files with cue markers and
@@ -82,13 +82,13 @@ local CONFIG = {
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local wav_io         = dofile(_lib .. "rsg_wav_io.lua")
-local merge_mod      = dofile(_lib .. "rsg_alloy_merge.lua")
-local rsg_actions    = dofile(_lib .. "rsg_actions.lua")
+local wav_io         = dofile(_lib .. "temper_wav_io.lua")
+local merge_mod      = dofile(_lib .. "temper_alloy_merge.lua")
+local rsg_actions    = dofile(_lib .. "temper_actions.lua")
 -- mark_analysis is optional (waveform peaks) -- Alloy works without it
 local mark_analysis
 do
-  local ok, mod = pcall(dofile, _lib .. "rsg_mark_analysis.lua")
+  local ok, mod = pcall(dofile, _lib .. "temper_mark_analysis.lua")
   if ok and type(mod) == "table" then mark_analysis = mod end
 end
 
@@ -558,7 +558,7 @@ local function render_title_bar(ctx, state, lic, lic_status)
     SC.TITLE_BAR)
 
   -- Title text
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, SC.PRIMARY, "TEMPER - ALLOY")
   if font_b then R.ImGui_PopFont(ctx) end
@@ -821,7 +821,7 @@ local function render_controls(ctx, state)
   local pill_gap = 0
 
   -- Use bold font for controls row (matching Mark)
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   R.ImGui_PushStyleVar(ctx, R.ImGui_StyleVar_FrameRounding(), 4)
@@ -1066,7 +1066,7 @@ local function render_tree_content(ctx, state)
       msg = "Scan a folder or search MediaDB to find variant groups"
     end
     -- Center first line (bold, matching Mark)
-    local font_b = rsg_theme and rsg_theme.font_bold
+    local font_b = temper_theme and temper_theme.font_bold
     if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
     local first_line = msg:match("^([^\n]+)") or msg
     local tw = R.ImGui_CalcTextSize(ctx, first_line)
@@ -1257,7 +1257,7 @@ local function render_tree_content(ctx, state)
     local sep = group.sep or "_"
     local label = (group.base or "?") .. sep .. "* (" .. n_files .. " files)"
 
-    local font_b = rsg_theme and rsg_theme.font_bold
+    local font_b = temper_theme and temper_theme.font_bold
     if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
     R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Text(), SC.TEXT_ON)
     R.ImGui_Text(ctx, label)
@@ -1476,7 +1476,7 @@ local function render_waveform_panel(ctx, state, w, h)
   if not sel_file then
     -- Stop preview when no file selected
     if state.preview.file_path then preview_stop(state) end
-    local font_b = rsg_theme and rsg_theme.font_bold
+    local font_b = temper_theme and temper_theme.font_bold
     if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
     local tw = R.ImGui_CalcTextSize(ctx, "Select a file to preview")
     R.ImGui_SetCursorPos(ctx, math.max(0, (w - tw) * 0.5), h * 0.4)
@@ -1532,7 +1532,7 @@ local function render_waveform_panel(ctx, state, w, h)
 
   -- Fallback: no waveform peaks available (mark_analysis missing)
   if not mip and not mark_analysis then
-    local font_b = rsg_theme and rsg_theme.font_bold
+    local font_b = temper_theme and temper_theme.font_bold
     if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
     local msg = "Waveform preview unavailable"
     local tw = R.ImGui_CalcTextSize(ctx, msg)
@@ -1730,6 +1730,11 @@ local function render_split_layout(ctx, state)
   local tree_w = math.floor(avail_w * state.split_ratio)
   tree_w = math.max(min_tree_w, math.min(avail_w - min_wave_w - splitter_w, tree_w))
   local wave_w = avail_w - tree_w - splitter_w
+  -- Guard against transient non-positive sizes on monitor resolution change:
+  -- BeginChild with <=0 size fails to push, then the unconditional EndChild
+  -- below asserts (ImGui_EndChild child_window flag check).
+  if avail_h < 1 then avail_h = 1 end
+  if wave_w  < 1 then wave_w  = 1 end
 
   -- Left: Tree panel (dark inner bg, matching Mark's aesthetic)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ChildBg(), SC.WINDOW)
@@ -1798,7 +1803,7 @@ end
 
 local function render_footer(ctx, state)
   local R = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   -- Merge progress bar (replaces normal footer during merge)
@@ -1934,10 +1939,10 @@ do
   end
 
   -- Load theme and attach fonts
-  pcall(dofile, _lib .. "rsg_theme.lua")
-  if type(rsg_theme) == "table" then
-    rsg_theme.attach_fonts(ctx)
-    SC = rsg_theme.SC
+  pcall(dofile, _lib .. "temper_theme.lua")
+  if type(temper_theme) == "table" then
+    temper_theme.attach_fonts(ctx)
+    SC = temper_theme.SC
   else
     -- Fallback palette if theme fails to load
     SC = {
@@ -1966,7 +1971,7 @@ do
   end
 
   -- License
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then lic = nil end
   if lic then lic.configure({
     namespace    = "TEMPER_Alloy",
@@ -1976,7 +1981,7 @@ do
   }) end
 
   -- MediaDB (loaded here because it needs to be scoped to the do block)
-  local _db_ok, db = pcall(dofile, _lib .. "rsg_mediadb.lua")
+  local _db_ok, db = pcall(dofile, _lib .. "temper_mediadb.lua")
   if not _db_ok then db = nil end
 
   -- State table
@@ -2095,7 +2100,7 @@ do
 
   load_settings()
 
-  -- Action framework wiring (IPC via ExtState; see lib/rsg_actions.lua)
+  -- Action framework wiring (IPC via ExtState; see lib/temper_actions.lua)
   local _BTN_FLASH_DUR = 0.25
   local function _set_flash(k) state._btn_flash[k] = reaper.time_precise() + _BTN_FLASH_DUR end
 
@@ -2133,7 +2138,7 @@ do
     _first_loop = false
 
     -- Theme push
-    local n_theme = rsg_theme and rsg_theme.push(ctx) or 0
+    local n_theme = temper_theme and temper_theme.push(ctx) or 0
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), SC.PANEL)
 
     -- Window flags (resizable, no native title bar)
@@ -2170,7 +2175,7 @@ do
     end
 
     -- Theme pop
-    if rsg_theme then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme then temper_theme.pop(ctx, n_theme) end
     reaper.ImGui_PopStyleColor(ctx, 1)  -- SC.PANEL WindowBg
 
     -- Continue or exit

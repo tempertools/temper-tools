@@ -3,13 +3,13 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Mark.lua
---   [nomain] lib/rsg_wav_io.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_mark_analysis.lua
---   [nomain] lib/rsg_license.lua
---   [nomain] lib/rsg_activation_dialog.lua
---   [nomain] lib/rsg_sha256.lua
---   [nomain] lib/rsg_actions.lua
+--   [nomain] lib/temper_wav_io.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_mark_analysis.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_sha256.lua
+--   [nomain] lib/temper_actions.lua
 -- @about
 --   Temper Mark scans folders of WAV files, detects transient boundaries via
 --   a multi-stage algorithm, previews results on a custom waveform display,
@@ -88,10 +88,10 @@ local CONFIG = {
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local wav_io         = dofile(_lib .. "rsg_wav_io.lua")
-local mark_analysis  = dofile(_lib .. "rsg_mark_analysis.lua")
-local platform       = dofile(_lib .. "rsg_platform.lua")
-local rsg_actions    = dofile(_lib .. "rsg_actions.lua")
+local wav_io         = dofile(_lib .. "temper_wav_io.lua")
+local mark_analysis  = dofile(_lib .. "temper_mark_analysis.lua")
+local platform       = dofile(_lib .. "temper_platform.lua")
+local rsg_actions    = dofile(_lib .. "temper_actions.lua")
 
 -- ============================================================
 -- ExtState namespace
@@ -476,7 +476,7 @@ local function render_title_bar(ctx, w, state, lic, lic_status)
     SC and SC.TITLE_BAR or 0x1A1A1CFF)
 
   -- Title text
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   local title_color = SC and SC.PRIMARY or 0x26A69AFF
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, title_color, "TEMPER - MARK")
@@ -693,7 +693,7 @@ local function render_controls(ctx, state, cur_file, cur_markers)
   local R = reaper
 
   -- Input button (folder scan or session add, based on input_mode)
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   local btn_sz = 26
@@ -929,7 +929,7 @@ local function render_file_list(ctx, state, h)
   local R = reaper
   local w = CONFIG.file_list_w
 
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ChildBg(), SC and SC.WINDOW or 0x0E0E10FF)
@@ -1517,7 +1517,7 @@ local function render_waveform_preview(ctx, state, w, h, cur_markers)
   local file = state.current_idx and state.files[state.current_idx]
   if not file then
     -- Empty state
-    local font_b = rsg_theme and rsg_theme.font_bold
+    local font_b = temper_theme and temper_theme.font_bold
     if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
     local text
     if #state.files > 0 then
@@ -1535,7 +1535,7 @@ local function render_waveform_preview(ctx, state, w, h, cur_markers)
     return
   end
 
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   -- Filename header + zoom indicator
@@ -1851,7 +1851,7 @@ end
 
 local function render_footer(ctx, state, w)
   local R = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   local status_text
@@ -2338,10 +2338,10 @@ do
   end
 
   -- Load theme and attach fonts
-  pcall(dofile, _lib .. "rsg_theme.lua")
-  if type(rsg_theme) == "table" then
-    rsg_theme.attach_fonts(ctx)
-    SC = rsg_theme.SC
+  pcall(dofile, _lib .. "temper_theme.lua")
+  if type(temper_theme) == "table" then
+    temper_theme.attach_fonts(ctx)
+    SC = temper_theme.SC
   else
     -- Fallback palette if theme fails to load
     SC = {
@@ -2369,7 +2369,7 @@ do
     }
   end
 
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then lic = nil end
   if lic then lic.configure({
     namespace    = "TEMPER_Mark",
@@ -2508,7 +2508,7 @@ do
     end
 
     -- Theme push
-    local n_theme = rsg_theme and rsg_theme.push(ctx) or 0
+    local n_theme = temper_theme and temper_theme.push(ctx) or 0
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), SC.PANEL)
 
     -- Window flags (resizable -- no NoResize)
@@ -2536,7 +2536,7 @@ do
     end
 
     -- Theme pop
-    if rsg_theme then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme then temper_theme.pop(ctx, n_theme) end
     reaper.ImGui_PopStyleColor(ctx, 1)  -- SC.PANEL WindowBg
 
     if open and not state.should_close then

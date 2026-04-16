@@ -3,12 +3,12 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Slice_Mini.lua
---   [nomain] lib/rsg_wav_io.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_license.lua
---   [nomain] lib/rsg_activation_dialog.lua
---   [nomain] lib/rsg_sha256.lua
---   [nomain] lib/rsg_actions.lua
+--   [nomain] lib/temper_wav_io.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_sha256.lua
+--   [nomain] lib/temper_actions.lua
 -- @about
 --   Temper Slice Mini converts stereo WAV files to mono via drag-and-drop.
 --   Drop files from your OS file browser, choose a channel extraction mode
@@ -66,9 +66,9 @@ local CONFIG = {
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local wav_io      = dofile(_lib .. "rsg_wav_io.lua")
-local platform    = dofile(_lib .. "rsg_platform.lua")
-local rsg_actions = dofile(_lib .. "rsg_actions.lua")
+local wav_io      = dofile(_lib .. "temper_wav_io.lua")
+local platform    = dofile(_lib .. "temper_platform.lua")
+local rsg_actions = dofile(_lib .. "temper_actions.lua")
 
 -- ============================================================
 -- ExtState namespace
@@ -526,7 +526,7 @@ local function remove_selected(state)
 end
 
 -- ============================================================
--- Action handlers (keyboard dispatch via lib/rsg_actions.lua)
+-- Action handlers (keyboard dispatch via lib/temper_actions.lua)
 -- Placed above all render_* functions (subset-of-GUI invariant).
 -- ============================================================
 
@@ -626,7 +626,7 @@ local function render_title_bar(ctx, state, lic, lic_status)
     SC.TITLE_BAR)
 
   -- Title text
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, SC.PRIMARY, "TEMPER - SLICE MINI")
   if font_b then R.ImGui_PopFont(ctx) end
@@ -658,7 +658,7 @@ local function render_controls(ctx, state, n_stereo)
   local btn_sz = CONFIG.btn_sz
   local btn_w = CONFIG.btn_w
 
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_PushStyleVar(ctx, R.ImGui_StyleVar_FramePadding(), 4, 4)
 
@@ -814,7 +814,7 @@ local function render_file_list(ctx, state)
   local R = reaper
   local row_h = CONFIG.row_h
   local dot_r = CONFIG.dot_r
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
 
   -- Calculate available height for the file list
   local _, avail_h_raw = R.ImGui_GetContentRegionAvail(ctx)
@@ -948,7 +948,7 @@ end
 
 local function render_footer(ctx, state, n_stereo)
   local R = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
 
   -- Progress bar during processing
@@ -1086,10 +1086,10 @@ do
   end
 
   -- Load theme and attach fonts
-  pcall(dofile, _lib .. "rsg_theme.lua")
-  if type(rsg_theme) == "table" then
-    rsg_theme.attach_fonts(ctx)
-    SC = rsg_theme.SC
+  pcall(dofile, _lib .. "temper_theme.lua")
+  if type(temper_theme) == "table" then
+    temper_theme.attach_fonts(ctx)
+    SC = temper_theme.SC
   else
     -- Fallback palette if theme fails to load
     SC = {
@@ -1117,7 +1117,7 @@ do
   end
 
   -- License
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then lic = nil end
   if lic then lic.configure({
     namespace    = "TEMPER_SliceMini",
@@ -1176,7 +1176,7 @@ do
                   | reaper.ImGui_WindowFlags_NoScrollbar()
                   | reaper.ImGui_WindowFlags_NoScrollWithMouse()
 
-  -- Action framework wiring (IPC via ExtState; see lib/rsg_actions.lua)
+  -- Action framework wiring (IPC via ExtState; see lib/temper_actions.lua)
   local _BTN_FLASH_DUR = 0.25
   local function _set_flash(k) state._btn_flash[k] = reaper.time_precise() + _BTN_FLASH_DUR end
 
@@ -1222,7 +1222,7 @@ do
     end
 
     -- Theme push
-    local n_theme = rsg_theme and rsg_theme.push(ctx) or 0
+    local n_theme = temper_theme and temper_theme.push(ctx) or 0
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), SC.PANEL)
 
     local visible, open = reaper.ImGui_Begin(ctx, "Temper Slice Mini##tslice", true, win_flags)
@@ -1244,7 +1244,7 @@ do
     end
 
     -- Theme pop
-    if rsg_theme then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme then temper_theme.pop(ctx, n_theme) end
     reaper.ImGui_PopStyleColor(ctx, 1)
 
     -- Continue or exit

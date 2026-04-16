@@ -3,15 +3,15 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex.lua
---   [nomain] lib/rsg_sha256.lua
---   [nomain] lib/rsg_license.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_activation_dialog.lua
---   [nomain] lib/rsg_mediadb.lua
---   [nomain] lib/rsg_track_utils.lua
---   [nomain] lib/rsg_import.lua
---   [nomain] lib/rsg_pp_apply.lua
---   [nomain] lib/rsg_actions.lua
+--   [nomain] lib/temper_sha256.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_mediadb.lua
+--   [nomain] lib/temper_track_utils.lua
+--   [nomain] lib/temper_import.lua
+--   [nomain] lib/temper_pp_apply.lua
+--   [nomain] lib/temper_actions.lua
 -- @about
 --   Vortex is a layer-based random audio asset importer for REAPER.
 --
@@ -67,15 +67,15 @@ local _PP_SEC = "rsg_item_copier_v2"
 -- (Scripts/Temper/Temper/Temper_Vortex/lib/).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local _pp_desc   = dofile(_lib .. "rsg_pp_descriptors.lua")
+local _pp_desc   = dofile(_lib .. "temper_pp_descriptors.lua")
 local _PP_TAKE_PROPS = _pp_desc.take
 local _PP_ITEM_PROPS = _pp_desc.item
-local db         = dofile(_lib .. "rsg_mediadb.lua")
-local track      = dofile(_lib .. "rsg_track_utils.lua")
-local import_mod = (dofile(_lib .. "rsg_import.lua"))(CONFIG)
-local _pp_mod    = dofile(_lib .. "rsg_pp_apply.lua")
+local db         = dofile(_lib .. "temper_mediadb.lua")
+local track      = dofile(_lib .. "temper_track_utils.lua")
+local import_mod = (dofile(_lib .. "temper_import.lua"))(CONFIG)
+local _pp_mod    = dofile(_lib .. "temper_pp_apply.lua")
 local _pp        = _pp_mod.create(_PP_TAKE_PROPS, _PP_ITEM_PROPS, import_mod.trim_item_to_max)
-local rsg_actions = dofile(_lib .. "rsg_actions.lua")
+local rsg_actions = dofile(_lib .. "temper_actions.lua")
 
 -- ============================================================
 -- Seek/Omit history cache (ported from Vortex Mini)
@@ -1854,7 +1854,7 @@ local COL_TEAL  = 0x2A8A7AFF
 -- Row selection tint (dark teal): shown on rows selected in the GUI.
 local COL_SEL_BG = 0x1A2A2AFF  -- dark teal tint, matches Col_Header
 
--- Spectral Core palette — mirrors rsg_theme.SC for direct access.
+-- Spectral Core palette — mirrors temper_theme.SC for direct access.
 local SC = {
   WINDOW       = 0x0E0E10FF,
   PANEL        = 0x1E1E20FF,
@@ -3218,7 +3218,7 @@ end
 
 local function render_right_column(ctx, state, app)
   local R = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   local col_w  = select(1, R.ImGui_GetContentRegionAvail(ctx))
 
   -- ── Row 1: Preset combo + Save ──────────────────────────────────────
@@ -3284,8 +3284,8 @@ end
 -- Adapted from Temper_Vortex_Mini render_gui layout.
 local function render_mini_panel(ctx, state, app)
   local R = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
-  local font_h = rsg_theme and rsg_theme.font_hero
+  local font_b = temper_theme and temper_theme.font_bold
+  local font_h = temper_theme and temper_theme.font_hero
 
   -- ── Enable flags ────────────────────────────────────────────────────
   local can_rnd = false
@@ -3545,7 +3545,7 @@ local function render_gui(ctx, app)
   end
 
   -- ── Title bar ───────────────────────────────────────────────────────
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   local dl_tb  = R.ImGui_GetWindowDrawList(ctx)
   local win_x, win_y = R.ImGui_GetWindowPos(ctx)
   local full_w = select(1, R.ImGui_GetWindowSize(ctx))
@@ -4000,13 +4000,13 @@ elseif not _RSG_TEST_MODE then
   reaper.ImGui_SetNextWindowSize(ctx, _WIN_W, 500, reaper.ImGui_Cond_FirstUseEver())
 
   -- ── License setup ─────────────────────────────────────────────
-  -- rsg_theme must be loaded and fonts attached before the activation dialog renders.
-  pcall(dofile, _lib .. "rsg_theme.lua")
-  if type(rsg_theme) == "table" then rsg_theme.attach_fonts(ctx) end
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  -- temper_theme must be loaded and fonts attached before the activation dialog renders.
+  pcall(dofile, _lib .. "temper_theme.lua")
+  if type(temper_theme) == "table" then temper_theme.attach_fonts(ctx) end
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then
     reaper.ShowMessageBox(
-      "Could not load rsg_license.lua — reinstall Temper Vortex to fix this.\n\n" ..
+      "Could not load temper_license.lua — reinstall Temper Vortex to fix this.\n\n" ..
       tostring(lic), "Temper Vortex — Missing Dependency", 0)
     return
   end
@@ -4017,11 +4017,11 @@ elseif not _RSG_TEST_MODE then
     buy_url      = "https://www.tempertools.com/scripts/vortex",
   })
 
-  -- font_bold: reuse rsg_theme's handle (avoids duplicate font atlas entry).
-  -- Fallback: create and attach a standalone bold font if rsg_theme failed to load.
+  -- font_bold: reuse temper_theme's handle (avoids duplicate font atlas entry).
+  -- Fallback: create and attach a standalone bold font if temper_theme failed to load.
   local font_bold
-  if type(rsg_theme) == "table" and rsg_theme.font_bold then
-    font_bold = rsg_theme.font_bold
+  if type(temper_theme) == "table" and temper_theme.font_bold then
+    font_bold = temper_theme.font_bold
   else
     font_bold = reaper.ImGui_CreateFont("Arial Bold", 13)
     reaper.ImGui_Attach(ctx, font_bold)
@@ -4153,7 +4153,7 @@ elseif not _RSG_TEST_MODE then
         if hwnd then reaper.JS_Window_SetForeground(hwnd) end
       end
     end
-    local n = rsg_theme and rsg_theme.push(ctx) or 0
+    local n = temper_theme and temper_theme.push(ctx) or 0
     local win_flags = reaper.ImGui_WindowFlags_NoCollapse()
                     | reaper.ImGui_WindowFlags_NoTitleBar()
                     | reaper.ImGui_WindowFlags_NoResize()
@@ -4180,7 +4180,7 @@ elseif not _RSG_TEST_MODE then
       end
       reaper.ImGui_End(ctx)  -- F9: must only be called when visible=true (undock crash fix)
     end
-    if rsg_theme then rsg_theme.pop(ctx, n) end
+    if temper_theme then temper_theme.pop(ctx, n) end
     if open and not app._close_requested then
       reaper.defer(loop)
     else

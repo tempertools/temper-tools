@@ -3,15 +3,15 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex_Mini.lua
---   [nomain] lib/rsg_sha256.lua
---   [nomain] lib/rsg_license.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_activation_dialog.lua
---   [nomain] lib/rsg_mediadb.lua
---   [nomain] lib/rsg_track_utils.lua
---   [nomain] lib/rsg_import.lua
---   [nomain] lib/rsg_pp_apply.lua
---   [nomain] lib/rsg_actions.lua
+--   [nomain] lib/temper_sha256.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_mediadb.lua
+--   [nomain] lib/temper_track_utils.lua
+--   [nomain] lib/temper_import.lua
+--   [nomain] lib/temper_pp_apply.lua
+--   [nomain] lib/temper_actions.lua
 -- @about
 --   Temper Vortex Mini is a lightweight companion to Temper Vortex for single-item
 --   ad hoc workflows. Select any item, launch Mini, and roll variations on
@@ -62,15 +62,15 @@ local CONFIG = {
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local _pp_desc   = dofile(_lib .. "rsg_pp_descriptors.lua")
+local _pp_desc   = dofile(_lib .. "temper_pp_descriptors.lua")
 local _PP_TAKE_PROPS = _pp_desc.take
 local _PP_ITEM_PROPS = _pp_desc.item
-local db         = dofile(_lib .. "rsg_mediadb.lua")
-local track      = dofile(_lib .. "rsg_track_utils.lua")
-local import_mod = (dofile(_lib .. "rsg_import.lua"))(CONFIG)
-local _pp_mod    = dofile(_lib .. "rsg_pp_apply.lua")
+local db         = dofile(_lib .. "temper_mediadb.lua")
+local track      = dofile(_lib .. "temper_track_utils.lua")
+local import_mod = (dofile(_lib .. "temper_import.lua"))(CONFIG)
+local _pp_mod    = dofile(_lib .. "temper_pp_apply.lua")
 local _pp        = _pp_mod.create(_PP_TAKE_PROPS, _PP_ITEM_PROPS, import_mod.trim_item_to_max)
-local rsg_actions = dofile(_lib .. "rsg_actions.lua")
+local rsg_actions = dofile(_lib .. "temper_actions.lua")
 
 -- ============================================================
 -- ExtState namespace + query history
@@ -770,7 +770,7 @@ end
 
 -- ============================================================
 -- Spectral Core palette (RSG-118) -- constants for all GUI components.
--- Mirrors rsg_theme.SC; defined here for direct access without indirection.
+-- Mirrors temper_theme.SC; defined here for direct access without indirection.
 -- ============================================================
 local SC = {
   WINDOW       = 0x0E0E10FF,  -- surface_container_lowest
@@ -916,7 +916,7 @@ local function render_title_bar(ctx, state, lic, lic_status)
   local R     = reaper
   local w     = R.ImGui_GetWindowWidth(ctx)
   local btn_w = 22
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_SetCursorPosX(ctx, 8)  -- symmetric indent matching gear icon's 8px right inset
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Text(), SC.PRIMARY)
@@ -944,7 +944,7 @@ end
 -- All items are toggle buttons. Alignment via SetCursorScreenPos + absolute X tracking.
 local function render_footer_row(ctx, state)
   local R      = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   local btn_h  = R.ImGui_GetFrameHeight(ctx)
   local font_sz   = R.ImGui_GetFontSize(ctx)
   local text_off  = math.floor((btn_h - font_sz) * 0.5)
@@ -1121,7 +1121,7 @@ end
 -- @param lic_status "licensed" | "trial" | "expired" | nil
 local function render_gui(ctx, state, lic, lic_status)
   local R      = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold  -- RSG-158: consistent bold coverage
+  local font_b = temper_theme and temper_theme.font_bold  -- RSG-158: consistent bold coverage
   -- Dropdown anchor data: set during seek/omit row, consumed at end of render_gui
   -- so dropdowns are drawn last (on top of all content, no layout shift).
   local _dd_q_x, _dd_q_y, _dd_om_x, _dd_om_y, _dd_seek_w, _dd_omit_w
@@ -1254,7 +1254,7 @@ local function render_gui(ctx, state, lic, lic_status)
   local last_col_w = right_w - 3 * col_w - 3 * 4  -- absorbs rounding remainder so SEC/BTS is flush-right
   local main_h   = 157                           -- two-column block height (fills to 8px gap above footer)
   local sep_h    = 8                             -- exact gap between mode row and VARIATIONS (set via SetCursorScreenPos)
-  local font_h   = rsg_theme and rsg_theme.font_hero  -- Arial Black 18px (correction #5)
+  local font_h   = temper_theme and temper_theme.font_hero  -- Arial Black 18px (correction #5)
 
   -- LEFT COLUMN: ROLL (full height, teal gradient + circle logo mark)
   if R.ImGui_BeginChild(ctx, "##roll_col", roll_w, main_h, 0) then
@@ -1657,10 +1657,10 @@ do
   -- RSG-118: 400x260 hard constraint (board-approved). Enforced every frame in loop().
 
   -- Load theme and attach fonts before any draw call.
-  pcall(dofile, _lib .. "rsg_theme.lua")
-  if type(rsg_theme) == "table" then rsg_theme.attach_fonts(ctx) end
+  pcall(dofile, _lib .. "temper_theme.lua")
+  if type(temper_theme) == "table" then temper_theme.attach_fonts(ctx) end
 
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then lic = nil end
   if lic then lic.configure({
     namespace    = "TEMPER_Vortex_Mini",
@@ -1769,7 +1769,7 @@ do
         if hwnd then reaper.JS_Window_SetForeground(hwnd) end
       end
     end
-    local n_theme   = rsg_theme and rsg_theme.push(ctx) or 0
+    local n_theme   = temper_theme and temper_theme.push(ctx) or 0
     -- Window bg slightly lighter than input fields (SC.PANEL vs SC.WINDOW) so dark inputs
     -- have visible contrast against the panel surface, matching the North Star depth model.
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), SC.PANEL)
@@ -1802,7 +1802,7 @@ do
       reaper.ImGui_End(ctx)  -- F9: must only be called when visible=true (undock crash fix)
     end
 
-    if rsg_theme then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme then temper_theme.pop(ctx, n_theme) end
     reaper.ImGui_PopStyleColor(ctx, 1)  -- SC.PANEL WindowBg (pushed before ImGui_Begin)
     if open and not state.should_close then
       reaper.defer(loop)

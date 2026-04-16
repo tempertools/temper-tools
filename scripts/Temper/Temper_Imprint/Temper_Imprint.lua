@@ -3,10 +3,10 @@
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Imprint.lua
---   [nomain] lib/rsg_theme.lua
---   [nomain] lib/rsg_pp_apply.lua
---   [nomain] lib/rsg_track_utils.lua
---   [nomain] lib/rsg_actions.lua
+--   [nomain] lib/temper_theme.lua
+--   [nomain] lib/temper_pp_apply.lua
+--   [nomain] lib/temper_track_utils.lua
+--   [nomain] lib/temper_actions.lua
 -- @about
 --   Temper Imprint is a property selection GUI for the Temper suite.
 --   It controls which item/take properties are enabled for Copy/Paste
@@ -86,15 +86,15 @@ _ALL_KEYS[#_ALL_KEYS + 1] = "i_fx"
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local track_mod   = dofile(_lib .. "rsg_track_utils.lua")
-local rsg_actions = dofile(_lib .. "rsg_actions.lua")
+local track_mod   = dofile(_lib .. "temper_track_utils.lua")
+local rsg_actions = dofile(_lib .. "temper_actions.lua")
 
 -- rsg_pp_apply needs a trim_item_to_max function; provide a simple one for Imprint.
 local function _trim_item_to_max(item, max_len)
   local cur = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
   if cur > max_len then reaper.SetMediaItemLength(item, max_len, false) end
 end
-local _pp_mod = dofile(_lib .. "rsg_pp_apply.lua")
+local _pp_mod = dofile(_lib .. "temper_pp_apply.lua")
 local _pp = _pp_mod.create(_PP_TAKE_PROPS, _PP_ITEM_PROPS, _trim_item_to_max)
 
 -- ============================================================
@@ -107,8 +107,8 @@ local _IMP_NS  = "TEMPER_Imprint"   -- script-local state (presets, instance gua
 -- Spectral Core color tokens (local alias)
 -- ============================================================
 
-pcall(dofile, _lib .. "rsg_theme.lua")
-local SC = (type(rsg_theme) == "table") and rsg_theme.SC or {}
+pcall(dofile, _lib .. "temper_theme.lua")
+local SC = (type(temper_theme) == "table") and temper_theme.SC or {}
 
 -- Fallback if theme failed to load (should not happen in normal use).
 if not SC.PRIMARY then
@@ -488,7 +488,7 @@ local function render_title_bar(ctx, state, lic, lic_status)
   local R      = reaper
   local w      = R.ImGui_GetWindowWidth(ctx)
   local btn_w  = 22
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
 
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_SetCursorPosX(ctx, 8)
@@ -565,8 +565,8 @@ end
 
 local function render_quick_presets(ctx, state)
   local R      = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
-  local font_r = rsg_theme and rsg_theme.font_regular
+  local font_b = temper_theme and temper_theme.font_bold
+  local font_r = temper_theme and temper_theme.font_regular
 
   -- "PRESETS" header: bold teal
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
@@ -636,11 +636,16 @@ end
 
 local function render_checkbox_grid(ctx, state, grid_h)
   local R      = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
-  local font_r = rsg_theme and rsg_theme.font_regular
+  local font_b = temper_theme and temper_theme.font_bold
+  local font_r = temper_theme and temper_theme.font_regular
   local gap    = 8
   local avail  = select(1, R.ImGui_GetContentRegionAvail(ctx))
   local col_w  = math.floor((avail - gap) * 0.5)
+  -- Guard against transient negative/zero sizes (e.g. monitor resolution
+  -- change): BeginChild with non-positive size fails to push a child
+  -- window, then the unconditional EndChild asserts.
+  if col_w  < 1 then col_w  = 1 end
+  if grid_h < 1 then grid_h = 1 end
 
   -- Left-align toggle button text
   R.ImGui_PushStyleVar(ctx, R.ImGui_StyleVar_ButtonTextAlign(), 0.0, 0.5)
@@ -708,7 +713,7 @@ local _FOOTER_BTN_H = 80
 
 local function render_footer(ctx, state)
   local R       = reaper
-  local font_h  = rsg_theme and rsg_theme.font_hero
+  local font_h  = temper_theme and temper_theme.font_hero
   local avail   = select(1, R.ImGui_GetContentRegionAvail(ctx))
   local gap     = 8
   local copy_w  = math.floor((avail - gap) * 0.45)
@@ -856,10 +861,13 @@ end
 local function render_settings_overlay(ctx, state, grid_h)
   if not state.settings_open then return end
   local R      = reaper
-  local font_b = rsg_theme and rsg_theme.font_bold
-  local font_r = rsg_theme and rsg_theme.font_regular
+  local font_b = temper_theme and temper_theme.font_bold
+  local font_r = temper_theme and temper_theme.font_regular
 
   local win_w = R.ImGui_GetWindowWidth(ctx) - 16
+  -- Guard against transient non-positive sizes on monitor resolution change.
+  if win_w  < 1 then win_w  = 1 end
+  if grid_h < 1 then grid_h = 1 end
 
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ChildBg(), SC.PANEL_HIGH)
   local showing = R.ImGui_BeginChild(ctx, "##settings_overlay", win_w, grid_h,
@@ -1033,9 +1041,9 @@ do
       "Temper Imprint", 0)
     return
   end
-  if type(rsg_theme) == "table" then rsg_theme.attach_fonts(ctx) end
+  if type(temper_theme) == "table" then temper_theme.attach_fonts(ctx) end
 
-  local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+  local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
   if not _lic_ok then lic = nil end
   if lic then lic.configure({
     namespace    = "TEMPER_Imprint",
@@ -1115,7 +1123,7 @@ do
       end
     end
 
-    local n_theme = rsg_theme and rsg_theme.push(ctx) or 0
+    local n_theme = temper_theme and temper_theme.push(ctx) or 0
     -- Override WindowBg to PANEL (lighter than theme's WINDOW) so the dense toggle
     -- grid has visible contrast against its PANEL_TOP/PANEL background shifts.
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), SC.PANEL)
@@ -1135,7 +1143,7 @@ do
       reaper.ImGui_End(ctx)
     end
 
-    if rsg_theme then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme then temper_theme.pop(ctx, n_theme) end
     reaper.ImGui_PopStyleColor(ctx, 1)
 
     if open and not state.should_close then

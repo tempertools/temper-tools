@@ -3,12 +3,12 @@
 -- @author Temper Tools
 -- @provides
 --   [main] .
---   lib/rsg_wav_io.lua
---   lib/rsg_theme.lua
---   lib/rsg_license.lua
---   lib/rsg_activation_dialog.lua
---   lib/rsg_sha256.lua
---   [nomain] lib/rsg_actions.lua
+--   lib/temper_wav_io.lua
+--   lib/temper_theme.lua
+--   lib/temper_license.lua
+--   lib/temper_activation_dialog.lua
+--   lib/temper_sha256.lua
+--   [nomain] lib/temper_actions.lua
 -- @about Batch multichannel audio format conversion tool
 
 local R = reaper
@@ -57,16 +57,16 @@ local CONFIG = {
 -- per-package ReaPack layout — see Temper_Vortex.lua for context).
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
-local wav_io    = dofile(_lib .. "rsg_wav_io.lua")
-local platform  = dofile(_lib .. "rsg_platform.lua")
+local wav_io    = dofile(_lib .. "temper_wav_io.lua")
+local platform  = dofile(_lib .. "temper_platform.lua")
 
-pcall(dofile, _lib .. "rsg_theme.lua")
-local SC = (type(rsg_theme) == "table") and rsg_theme.SC or {}
+pcall(dofile, _lib .. "temper_theme.lua")
+local SC = (type(temper_theme) == "table") and temper_theme.SC or {}
 
-local _lic_ok, lic = pcall(dofile, _lib .. "rsg_license.lua")
+local _lic_ok, lic = pcall(dofile, _lib .. "temper_license.lua")
 if not _lic_ok then lic = nil end
 
-local rsg_actions = dofile(_lib .. "rsg_actions.lua")
+local rsg_actions = dofile(_lib .. "temper_actions.lua")
 
 -- Fallback colors when theme unavailable
 if not SC.PRIMARY then
@@ -874,7 +874,7 @@ end
 local start_processing
 local remove_selected
 
--- ── Action handlers (keyboard dispatch via lib/rsg_actions.lua) ───
+-- ── Action handlers (keyboard dispatch via lib/temper_actions.lua) ───
 -- Placed above all render_* functions to avoid forward-reference traps.
 -- Each handler mirrors a GUI button callback 1:1 (subset-of-GUI invariant).
 
@@ -932,7 +932,7 @@ local function render_title_bar(ctx, state)
     SC.TITLE_BAR)
 
   -- Title text (drawn directly, no cursor movement)
-  local font_b = rsg_theme and rsg_theme.font_bold
+  local font_b = temper_theme and temper_theme.font_bold
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, SC.PRIMARY, "TEMPER - SLICE")
   if font_b then R.ImGui_PopFont(ctx) end
@@ -980,8 +980,8 @@ local function render_toolbar(ctx, state)
   local n_processable = count_processable(state)
   local win_w = R.ImGui_GetWindowWidth(ctx) - 16
 
-  if rsg_theme and rsg_theme.font_bold then
-    R.ImGui_PushFont(ctx, rsg_theme.font_bold, 13)
+  if temper_theme and temper_theme.font_bold then
+    R.ImGui_PushFont(ctx, temper_theme.font_bold, 13)
   end
 
   -- SLICE / CANCEL button
@@ -1074,7 +1074,7 @@ local function render_toolbar(ctx, state)
   R.ImGui_PopStyleColor(ctx, _out_flash and 7 or 5)
   if is_processing then R.ImGui_EndDisabled(ctx) end
 
-  if rsg_theme and rsg_theme.font_bold then R.ImGui_PopFont(ctx) end
+  if temper_theme and temper_theme.font_bold then R.ImGui_PopFont(ctx) end
 end
 
 local function render_footer(ctx, state)
@@ -1083,8 +1083,8 @@ local function render_footer(ctx, state)
 
   R.ImGui_SetCursorPosY(ctx, win_h - 8 - CONFIG.footer_h)
 
-  if rsg_theme and rsg_theme.font_bold then
-    R.ImGui_PushFont(ctx, rsg_theme.font_bold, 13)
+  if temper_theme and temper_theme.font_bold then
+    R.ImGui_PushFont(ctx, temper_theme.font_bold, 13)
   end
 
   local is_active = state.status == "processing" or
@@ -1172,7 +1172,7 @@ local function render_footer(ctx, state)
     R.ImGui_PopStyleColor(ctx, 1)
   end
 
-  if rsg_theme and rsg_theme.font_bold then R.ImGui_PopFont(ctx) end
+  if temper_theme and temper_theme.font_bold then R.ImGui_PopFont(ctx) end
 end
 
 local function handle_file_click(ctx, state, idx)
@@ -1440,8 +1440,8 @@ local function render_file_row(ctx, state, idx, file, row_w)
 end
 
 local function render_file_list(ctx, state)
-  if rsg_theme and rsg_theme.font_bold then
-    R.ImGui_PushFont(ctx, rsg_theme.font_bold, 13)
+  if temper_theme and temper_theme.font_bold then
+    R.ImGui_PushFont(ctx, temper_theme.font_bold, 13)
   end
 
   local avail_w = R.ImGui_GetContentRegionAvail(ctx)
@@ -1463,7 +1463,7 @@ local function render_file_list(ctx, state)
     end
   end
 
-  if rsg_theme and rsg_theme.font_bold then R.ImGui_PopFont(ctx) end
+  if temper_theme and temper_theme.font_bold then R.ImGui_PopFont(ctx) end
 end
 
 -- ── State ──────────────────────────────────────────────────────────
@@ -1485,8 +1485,8 @@ end
 
 -- ── Settings Overlay ──────────────────────────────────────────────
 local function render_settings_overlay(ctx, state, area_h)
-  if rsg_theme and rsg_theme.font_bold then
-    R.ImGui_PushFont(ctx, rsg_theme.font_bold, 13)
+  if temper_theme and temper_theme.font_bold then
+    R.ImGui_PushFont(ctx, temper_theme.font_bold, 13)
   end
 
   local tbl_flags = R.ImGui_TableFlags_SizingStretchSame()
@@ -1680,7 +1680,7 @@ local function render_settings_overlay(ctx, state, area_h)
     R.ImGui_EndTable(ctx)
   end
 
-  if rsg_theme and rsg_theme.font_bold then R.ImGui_PopFont(ctx) end
+  if temper_theme and temper_theme.font_bold then R.ImGui_PopFont(ctx) end
 end
 
 -- ── Downmix Coefficients (ITU-R BS.775 based) ─────────────────────
@@ -2748,7 +2748,7 @@ render_gui = function(ctx, state)
       R.ImGui_ChildFlags_None())
     if showing then
       if #state.files == 0 then
-        local font_b = rsg_theme and rsg_theme.font_bold
+        local font_b = temper_theme and temper_theme.font_bold
         if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
         local avail_w = R.ImGui_GetContentRegionAvail(ctx)
         local txt = "Drop WAV files here"
@@ -2876,7 +2876,7 @@ do
       "Temper Slice", 0)
     return
   end
-  if type(rsg_theme) == "table" then rsg_theme.attach_fonts(ctx) end
+  if type(temper_theme) == "table" then temper_theme.attach_fonts(ctx) end
 
   if lic then lic.configure({
     namespace    = "TEMPER_Slice",
@@ -2923,7 +2923,7 @@ do
                   | R.ImGui_WindowFlags_NoScrollbar()
                   | R.ImGui_WindowFlags_NoScrollWithMouse()
 
-  -- Action framework wiring (IPC via ExtState; see lib/rsg_actions.lua)
+  -- Action framework wiring (IPC via ExtState; see lib/temper_actions.lua)
   local _BTN_FLASH_DUR = 0.25
   local function _set_flash(k) state._btn_flash[k] = R.time_precise() + _BTN_FLASH_DUR end
 
@@ -2963,7 +2963,7 @@ do
       end
     end
 
-    local n_theme = rsg_theme and rsg_theme.push(ctx) or 0
+    local n_theme = temper_theme and temper_theme.push(ctx) or 0
 
     local visible, open = R.ImGui_Begin(ctx, "Temper Slice##slice_main", true, win_flags)
     if visible then
@@ -2993,7 +2993,7 @@ do
       R.ImGui_End(ctx)
     end
 
-    if rsg_theme then rsg_theme.pop(ctx, n_theme) end
+    if temper_theme then temper_theme.pop(ctx, n_theme) end
 
     if open and not state.should_close then
       R.defer(loop)
