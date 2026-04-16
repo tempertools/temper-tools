@@ -5,7 +5,7 @@
     <link rel="website">https://tempertools.com</link>
     <link rel="donation">https://tempertools.com/pricing</link>
   </metadata>
-  <category name="Temper">
+  <category name="Temper Tools">
     <reapack name="Temper_Vortex.lua" type="script" desc="Temper Vortex -- Multi-Track Layer Randomizer">
       <version name="1.7.32" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Vortex/Temper_Vortex.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/Temper_Vortex.lua</source>
