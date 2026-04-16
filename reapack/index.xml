@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<index version="1" name="Temper">
+<index version="1" name="Temper Tools">
   <metadata>
     <description>Production-ready REAPER automation tools by Temper. Randomization, property management, audio conversion, marker embedding, file merging, and project archival.</description>
     <link rel="website">https://tempertools.com</link>
