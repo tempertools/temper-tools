@@ -2,10 +2,11 @@
 
 Precision tools for audio professionals, by Temper.
 
-Temper makes REAPER work the way its users imagine it should. Every tool
-in this repository extends REAPER's ReaScript system with focused,
-production-ready automation for post, game audio, and music editing.
-Each script is validated against live sessions before release.
+Sound design is creative work.
+But most of the time gets spent on the repetitive: swapping samples, managing properties, preparing libraries, placing markers. The creative decisions that define your sound get squeezed into whatever time is left.
+Temper exists to reverse that. Every tool we build removes a layer of tedious work so you can operate at scale without sacrificing the artistry.
+Faster output. Better decisions. More time to be creative.
+Many tools. One workflow.
 
 See demos, documentation, and purchase options at
 [tempertools.com](https://tempertools.com).
