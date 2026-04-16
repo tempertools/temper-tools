@@ -6,7 +6,7 @@
     <link rel="donation">https://tempertools.com/pricing</link>
   </metadata>
   <category name="Temper">
-    <reapack name="Temper_Vortex.lua" type="script" desc="Temper Vortex">
+    <reapack name="Temper_Vortex.lua" type="script" desc="Temper Vortex -- Multi-Track Layer Randomizer">
       <version name="1.7.32" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Vortex/Temper_Vortex.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/Temper_Vortex.lua</source>
         <source file="Temper_Vortex/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/lib/temper_actions.lua</source>
@@ -115,7 +115,7 @@
         <source file="Temper_Alloy/Actions/Temper_Alloy_Toggle_Window.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/Actions/Temper_Alloy_Toggle_Window.lua</source>
       </version>
     </reapack>
-    <reapack name="Temper_Slice.lua" type="script" desc="Temper Slice">
+    <reapack name="Temper_Slice.lua" type="script" desc="Temper Slice -- Multichannel Audio Batch Converter">
       <version name="3.2.4" author="Temper Tools" time="2026-04-15T01:04:16Z">
         <source file="Temper_Slice/Temper_Slice.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/Temper_Slice.lua</source>
         <source file="Temper_Slice/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/lib/temper_actions.lua</source>
