@@ -413,10 +413,15 @@ function M.compress_start(src_dir, dest_final)
   if platform == "win" then
     ok = _write_win_job(src_dir, dest_part, sentinel, script_path)
     if ok then
-      -- io.popen returns immediately; the child runs in the background.
-      -- Handle is intentionally not closed so it doesn't block; GC cleans up.
-      io.popen(string.format(
-        'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"',
+      -- Launch detached via `start /B`: cmd spawns PowerShell as a
+      -- background process then exits immediately, so os.execute returns
+      -- without blocking. The sentinel file signals completion.
+      --
+      -- Prior approach used io.popen, but Lua's GC calls pclose() on
+      -- orphaned handles, which blocks the main thread waiting for the
+      -- child process to finish -- freezing REAPER for large archives.
+      os.execute(string.format(
+        'start "" /B powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"',
         script_path
       ))
     end

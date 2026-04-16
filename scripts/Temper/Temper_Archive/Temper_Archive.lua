@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.6
+-- @version 1.3.7
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
@@ -990,7 +990,8 @@ local function render_list(ctx, state)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ChildBg(), COL.WINDOW)
   local child_h = select(2, R.ImGui_GetContentRegionAvail(ctx)) - CONFIG.footer_h - 4
   if child_h < 60 then child_h = 60 end
-  if R.ImGui_BeginChild(ctx, "##arc_list", 0, child_h, 0) then
+  if R.ImGui_BeginChild(ctx, "##arc_list", 0, child_h, 0,
+      R.ImGui_WindowFlags_AlwaysVerticalScrollbar()) then
     if not state.rows or #state.rows == 0 then
       render_list_empty(ctx, state)
     else
