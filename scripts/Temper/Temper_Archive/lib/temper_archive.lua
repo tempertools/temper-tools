@@ -405,7 +405,12 @@ function M.compress_start(src_dir, dest_final)
 
   local dest_part   = dest_final:gsub("%.zip$", "_tmp.zip")
   local sentinel    = dest_final:gsub("%.zip$", "_done.txt")
-  local script_path = dest_final:gsub("%.zip$", (platform == "win") and "_job.ps1" or "_job.sh")
+  -- Write job script to OS temp dir, not the output dir. Network/UNC output
+  -- paths can break `cmd /c start` and may have write-latency issues.
+  local leaf_base   = dest_final:gsub("\\", "/"):match("([^/]+)%.zip$") or "archive"
+  local tmp_dir     = os.getenv("TEMP") or os.getenv("TMPDIR") or os.tmpname():match("^(.*)[\\/]") or "."
+  local script_path = tmp_dir .. "/" .. leaf_base
+                      .. ((platform == "win") and "_job.ps1" or "_job.sh")
   _remove_silent(dest_part)
   _remove_silent(sentinel)
 
@@ -423,9 +428,11 @@ function M.compress_start(src_dir, dest_final)
       -- child exits. Even if we store the handle, the open read-pipe can
       -- cause PowerShell to block on stdout writes that nobody reads.
       -- Why not os.execute? It calls system() which blocks the Lua VM.
+      -- /D sets cmd's working dir to a local path so UNC output dirs
+      -- don't trigger "CMD does not support UNC paths as current directories".
       local h = io.popen(string.format(
-        'cmd /c start "" /B powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"',
-        script_path
+        'cmd /D /C "cd /D %s && start "" /B powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \\"%s\\""',
+        tmp_dir, script_path
       ))
       if h then h:close() end
     end
