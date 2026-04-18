@@ -157,9 +157,6 @@ local _dlg_open       = false
 local _buy_url        = "https://www.tempertools.com"
 local _display_name   = "Temper"
 local _scope_id       = nil  -- product scope ID for key validation; must be set via configure()
--- @strip-dev-start
-local _dev_trial_days = nil
--- @strip-dev-end
 
 -- ── Public API ───────────────────────────────────────────────────────────────
 
@@ -177,23 +174,6 @@ end
 function M.check(product_code, ctx)  -- luacheck: ignore product_code ctx
   if _status == "licensed" then return "licensed" end
 
-  -- @strip-dev-start
-  local dev_path = reaper.GetResourcePath() .. "/Scripts/Temper/.dev"
-  local dev_f = io.open(dev_path, "r")
-  if dev_f then
-    local content = dev_f:read("*a")
-    dev_f:close()
-    local dev_status = content:match("status%s*=%s*(%w+)")
-    if dev_status == "licensed" or dev_status == "trial" or dev_status == "expired" then
-      if dev_status == "trial" then
-        local dr = content:match("days_remaining%s*=%s*(%d+)")
-        _dev_trial_days = dr and tonumber(dr) or _TRIAL_DAYS
-      end
-      _status = dev_status
-      return dev_status
-    end
-  end
-  -- @strip-dev-end
 
   -- Check stored key (HMAC validation + scope match)
   local stored = _get("license_key")
@@ -236,9 +216,6 @@ end
 -- Days left in the trial window. Returns 0 when licensed or expired.
 function M.trial_days_remaining()
   if _status == "licensed" then return 0 end
-  -- @strip-dev-start
-  if _dev_trial_days then return _dev_trial_days end
-  -- @strip-dev-end
   return _trial_days_remaining()
 end
 
@@ -285,9 +262,6 @@ function M.reset()
   _dlg_open = false
   _sha      = nil
   _dlg      = nil
-  -- @strip-dev-start
-  _dev_trial_days = nil
-  -- @strip-dev-end
 end
 
 return M

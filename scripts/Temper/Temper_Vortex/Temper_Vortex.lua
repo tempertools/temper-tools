@@ -1,4 +1,4 @@
--- @description Temper Vortex
+-- @description Temper Vortex -- Multi-Track Layer Randomizer
 -- @version 1.7.32
 -- @author Temper Tools
 -- @provides

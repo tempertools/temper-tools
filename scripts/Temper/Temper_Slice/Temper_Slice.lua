@@ -1,4 +1,4 @@
--- @description Temper Slice
+-- @description Temper Slice -- Multichannel Audio Batch Converter
 -- @version 3.2.4
 -- @author Temper Tools
 -- @provides
