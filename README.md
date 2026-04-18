@@ -19,6 +19,8 @@ See demos, documentation, and purchase options at
   single item and its layers.
 - **Temper Imprint**: Capture and paste routing, FX chains, envelopes,
   and sends between tracks.
+- **Temper Nexus**: Edit sends, receives, hardware outs, and parent
+  routing across the selected tracks from one window.
 - **Temper Mark**: Transfer take markers onto the rendered WAV file.
 - **Temper Alloy**: Combine WAV variants into a single multichannel file.
 - **Temper Slice**: Bounce items to structured WAV files with embedded
