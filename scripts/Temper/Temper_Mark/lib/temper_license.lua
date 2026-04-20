@@ -31,7 +31,7 @@ local _SCOPE_NAMES = {
   [0x3] = "Imprint",     [0x4] = "Mark",
   [0x5] = "Alloy",       [0x6] = "Slice Mini",
   [0x7] = "Slice",       [0x8] = "Nexus",
-  [0x9] = "Archive",
+  [0x9] = "Archive",     [0xA] = "Recall",
   [0xF] = "Temper All-Access Bundle",
 }
 

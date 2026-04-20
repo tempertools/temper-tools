@@ -4093,6 +4093,31 @@ elseif not _RSG_TEST_MODE then
     toggle_time_unit  = function() vortex_actions.toggle_time_unit(state) end,
     close             = function() app._close_requested = true end,
   }
+
+  -- Testing harness registration: exposes projected state via _harness_dump
+  -- command when _TEMPER_HARNESS is set at launch.  Gated, so production
+  -- runs skip all of this.  See tests/harness/ for the scenario executor.
+  if _TEMPER_HARNESS then
+    local _tts_ok, _tts = pcall(dofile, _lib .. "temper_test_state.lua")
+    if _tts_ok and type(_tts) == "table" and _tts.register and _tts.dump_to_file then
+      _tts.register(_EXT_SEC, function()
+        return {
+          status            = state.status,
+          error_msg         = state.error_msg,
+          parent_name       = state.parent_name,
+          child_count       = state.child_count,
+          rows_count        = state.rows and #state.rows or 0,
+          active_preset     = state.active_preset_name,
+          inherit_global    = state.inherit_global,
+          prop_snapshot_set = state.prop_snapshot ~= nil,
+          var_unit          = state.var_unit,
+          close_requested   = app._close_requested == true,
+        }
+      end)
+      HANDLERS._harness_dump = function() _tts.dump_to_file() end
+    end
+  end
+
   rsg_actions.clear_pending_on_init(_EXT_SEC)
 
   -- ── Defer loop ────────────────────────────────────────────────

@@ -1,0 +1,423 @@
+noindex: true
+version: 0.3.7
+author: Temper Tools
+desc: Temper Recall Capture Engine
+
+options:gmem=Temper_Recall, maxmem=268435456, gfx_idle=1
+
+in_pin:in 1
+in_pin:in 2
+in_pin:in 3
+in_pin:in 4
+in_pin:in 5
+in_pin:in 6
+in_pin:in 7
+in_pin:in 8
+in_pin:in 9
+in_pin:in 10
+in_pin:in 11
+in_pin:in 12
+in_pin:in 13
+in_pin:in 14
+in_pin:in 15
+in_pin:in 16
+out_pin:out 1
+out_pin:out 2
+out_pin:out 3
+out_pin:out 4
+out_pin:out 5
+out_pin:out 6
+out_pin:out 7
+out_pin:out 8
+out_pin:out 9
+out_pin:out 10
+out_pin:out 11
+out_pin:out 12
+out_pin:out 13
+out_pin:out 14
+out_pin:out 15
+out_pin:out 16
+
+@init
+ext_noinit = 1;
+// Fixed-resolution peak ring. Lua resamples to current window width at render
+// time with max-pool, so window resize never reshuffles stored peaks.
+DISP_RES = 2048;
+MAX_NCH = 16;
+// Spectral view: BINS log-spaced magnitude slots per disp_px column. FFT_SIZE
+// is the window length fed to fft_real; 1024 @ 48k ≈ 21.3ms per analysis frame,
+// giving cleaner frequency resolution with negligible temporal cost versus a
+// typical disp_px slot (≥ 20ms at 60s / 2048 slots @ 48k).
+BINS = 64;
+FFT_SIZE = 1024;
+// Monotonic per-frame counter, never wraps. Feeds effective_nch staleness
+// detection: modular `counter` wraps at buf_len, so once a channel had
+// activity, age comparisons stayed bounded forever and effective_nch
+// latched high. total_frames increments regardless of ring-wrap.
+total_frames = 0;
+
+@block
+requested_buf_dur = gmem[4];
+requested_buf_dur < 10 ? ( requested_buf_dur = 60; );
+
+// Capture nch is Lua-driven (gmem[12] = master.I_NCHAN, written each frame).
+// num_ch on Monitor FX reflects the declared in_pin count (16), not the
+// per-FX Track Channels dropdown, so it's unusable here. Master I_NCHAN is
+// the natural surround-session signal.
+new_nch = gmem[12];
+new_nch < 1 ? new_nch = 2;
+new_nch > MAX_NCH ? new_nch = MAX_NCH;
+
+(last_srate != srate) || (last_buf_dur != requested_buf_dur) || (last_nch != new_nch) ? (
+  buf_pos = 0;
+  buf_dur = requested_buf_dur;
+  nch = new_nch;
+  buf_len = floor(buf_dur * srate) * nch;
+  counter = 0;
+
+  gmem_ctrl = 20;
+  disp_buf_base = gmem_ctrl + 1;
+  // Spectral bin ring lives in gmem immediately after the peak ring so Lua
+  // reads both by the same disp_px index. Total gmem footprint: DISP_RES +
+  // DISP_RES*BINS ≈ 133k floats, negligible against the 256MB cap.
+  spec_buf_base = disp_buf_base + DISP_RES;
+
+  // Zero the display peak ring so the old timescale's peaks don't linger
+  // during the ~buf_dur window while @sample walks disp_px round.
+  clr_idx = 0;
+  loop(DISP_RES,
+    gmem[disp_buf_base + clr_idx] = 0;
+    clr_idx += 1;
+  );
+  // Zero the spectral ring too so a timescale change doesn't leave stale
+  // bins visible at the left edge during the first sweep.
+  clr_idx = 0;
+  loop(DISP_RES * BINS,
+    gmem[spec_buf_base + clr_idx] = 0;
+    clr_idx += 1;
+  );
+  last_disp_px = -1;
+
+  // Per-channel activity tracker: last_active_base[i] holds total_frames
+  // value at the last above-threshold sample on channel i. Placed past
+  // ring+temp_buf to avoid stomping either. Pristine sentinel is
+  // far-negative so age = total_frames - sentinel is always huge and
+  // channel reads as inactive.
+  last_active_base = 2 * buf_len + 1024;
+  clr_idx = 0;
+  loop(MAX_NCH,
+    last_active_base[clr_idx] = -1;
+    clr_idx += 1;
+  );
+
+  // Fixed 2s diagnostic window. effective_nch reflects "has this
+  // channel had signal in the last ~2s" -- independent of buf_dur,
+  // which is capture-ring length, not a UX timeout. Routing feedback
+  // needs to be responsive; the ring can be 60s.
+  max_active_age = floor(2 * srate);
+
+  // Spectral working memory. Parked past the last_active_base block so it
+  // can never stomp the activity tracker. Layout:
+  //   fft_base            : FFT_SIZE slots, time-domain window, transformed
+  //                         in place by fft_real.
+  //   hann_base           : FFT_SIZE slots, precomputed Hann coefficients.
+  //   log_bin_lo_base     : BINS slots, inclusive source-bin lower bound.
+  //   log_bin_hi_base     : BINS slots, inclusive source-bin upper bound.
+  fft_base        = 2 * buf_len + 2048;
+  hann_base       = fft_base + FFT_SIZE;
+  log_bin_lo_base = hann_base + FFT_SIZE;
+  log_bin_hi_base = log_bin_lo_base + BINS;
+
+  // Hann window. Precomputed once per reset; the multiply-in-place step in
+  // @sample stays a single op per FFT tap.
+  hw_i = 0;
+  loop(FFT_SIZE,
+    hann_base[hw_i] = 0.5 - 0.5 * cos(2.0 * $pi * hw_i / (FFT_SIZE - 1));
+    hw_i += 1;
+  );
+
+  // Log-spaced output bin → source bin ranges. 20 Hz to Nyquist, BINS steps.
+  // max-pool across [lo..hi] per output bin preserves narrow-band content
+  // at low frequencies while giving high-band bins the width they need.
+  log_f_lo = log(20);
+  log_f_hi = log(srate * 0.5);
+  log_step = (log_f_hi - log_f_lo) / BINS;
+  fft_bin_width = srate / FFT_SIZE;
+  log_bin_i = 0;
+  loop(BINS,
+    freq_lo = exp(log_f_lo + log_step * log_bin_i);
+    freq_hi = exp(log_f_lo + log_step * (log_bin_i + 1));
+    src_lo = floor(freq_lo / fft_bin_width);
+    src_hi = ceil(freq_hi / fft_bin_width);
+    src_lo < 1 ? src_lo = 1;
+    src_hi > FFT_SIZE * 0.5 - 1 ? src_hi = FFT_SIZE * 0.5 - 1;
+    src_hi < src_lo ? src_hi = src_lo;
+    log_bin_lo_base[log_bin_i] = src_lo;
+    log_bin_hi_base[log_bin_i] = src_hi;
+    log_bin_i += 1;
+  );
+
+  fft_write_pos = 0;
+
+  // Export staging base: sits past the spectral ring so Lua can read
+  // interleaved float samples directly from gmem after an export trigger.
+  // Size cap (EXPORT_BUF_SIZE floats) is enforced in sample_buf() to keep
+  // the gmem footprint under REAPER's ~8M-float per-name shared budget.
+  export_buf_base = spec_buf_base + DISP_RES * BINS + 1024;
+  EXPORT_BUF_SIZE = 7340032;  // 7M floats = ~28MB; ~9.5s @ 16ch/48k
+
+  // export_buf_base is mirrored in Lua as a hardcoded constant (see
+  // EXPORT_BUF_BASE in Temper_Recall.lua). Earlier versions broadcast it via
+  // gmem[25], but that slot sits inside the display ring gmem[21..2068] and
+  // was overwritten by @sample every frame (slot-collision bug, v0.4.2 diag
+  // pinned 2026-04-19). Do NOT reintroduce a gmem broadcast here without
+  // reserving a slot outside the display + spectral + export ring ranges.
+
+  // Clear the READY flag so a stale trigger from the previous session
+  // can't cause Lua to re-consume zeroed samples on reinit.
+  gmem[14] = 0;
+
+  gmem[16] = 1;
+  gmem[19] = srate;
+  // Protocol handshake: Lua compares gmem[10] against its expected version
+  // on startup and removes+reinstalls the JSFX on mismatch, so the user
+  // never has to hand-Reload-JS after a version bump. Bump when the
+  // Lua<->JSFX gmem contract changes.
+  gmem[10] = 13;
+
+  last_srate = srate;
+  last_buf_dur = buf_dur;
+  last_nch = nch;
+);
+
+// Live nch broadcast for Lua Settings readout. Slot 11 is unused by the
+// existing protocol; do not collide with DISP_BUF_OFFSET at slot 18.
+gmem[11] = nch;
+
+// Effective nch = highest channel index (+1) that had above-threshold
+// signal within the last buf_dur seconds. Lua compares against cap_nch
+// to detect any master-chain routing gap (master HW Out narrower than
+// I_NCHAN, or Monitor FX Track Channels narrower than master). Starts
+// at 0 so "no signal seen yet" is distinguishable from "only channel 1
+// active" -- Lua suppresses the warning on 0. Uses total_frames (never
+// wraps) so a once-active channel correctly decays when it goes silent.
+effective_nch = 0;
+check_i = 0;
+loop(nch,
+  age = total_frames - last_active_base[check_i];
+  age < max_active_age ? ( effective_nch = check_i + 1; );
+  check_i += 1;
+);
+gmem[13] = effective_nch;
+
+@sample
+pause_state = gmem[9];
+lock_writehead == 0 && pause_state != 1 ? (
+  // Capture all input channels at this frame, contiguous interleaved layout:
+  // [c0 c1 ... c(nch-1)] per frame. counter advances by nch per frame so
+  // wraps land on frame boundaries (preserves the existing modulo math).
+  // Per-channel activity tracker updates here: cheap threshold check
+  // feeds effective_nch detection in @block.
+  i = 0;
+  loop(nch,
+    smp = spl(i);
+    buf_pos[counter + i] = smp;
+    // Threshold sits just above FP denormals so quiet-but-real content
+    // (high-order ambisonic components, late reverb tails) still marks
+    // a channel as routed. Unwired Monitor FX pins receive exact 0, so
+    // any non-zero sample is a routing signal.
+    abs(smp) > 0.000000001 ? ( last_active_base[i] = total_frames; );
+    i += 1;
+  );
+
+  counter += nch;
+  counter >= buf_len ? ( counter = 0; );
+  total_frames += 1;
+
+  // Display buffer update -- fixed DISP_RES slots, independent of window.
+  // Peak is max-abs across all input channels for this frame so a
+  // multichannel-only signal still drives the visible waveform.
+  disp_buf_size = DISP_RES;
+  disp_buf_size > 0 ? (
+    gmem[18] = disp_buf_base;
+
+    disp_val = 0;
+    fft_in_sum = 0;
+    j = 0;
+    loop(nch,
+      s_j = spl(j);
+      v = abs(s_j);
+      v > disp_val ? ( disp_val = v; );
+      fft_in_sum += s_j;
+      j += 1;
+    );
+
+    disp_px = floor(counter_norm * disp_buf_size);
+    disp_px >= disp_buf_size ? ( disp_px = disp_buf_size - 1; );
+
+    // New pixel crossed? Reset peak, clear the spec slot's BINS so a new
+    // timescale sweep doesn't leave stale bins at the leading edge.
+    disp_px != last_disp_px ? (
+      gmem[disp_buf_base + disp_px] = 0;
+      spec_clr_i = 0;
+      loop(BINS,
+        gmem[spec_buf_base + disp_px * BINS + spec_clr_i] = 0;
+        spec_clr_i += 1;
+      );
+      last_disp_px = disp_px;
+    );
+
+    // Update peak
+    cur_peak = gmem[disp_buf_base + disp_px];
+    disp_val > cur_peak ? (
+      gmem[disp_buf_base + disp_px] = disp_val;
+    );
+
+    // Feed spectral window. Sum-across-channels matches how disp_val
+    // treats multichannel signal so both views respond together.
+    fft_base[fft_write_pos] = fft_in_sum;
+    fft_write_pos += 1;
+    fft_write_pos >= FFT_SIZE ? (
+      // Hann window in place, then forward real FFT. EEL2 fft_real output
+      // packing: buffer[0] = DC, buffer[1] = Nyquist, buffer[2k] +
+      // j*buffer[2k+1] = complex bin k for k in [1, N/2 - 1].
+      wm_i = 0;
+      loop(FFT_SIZE,
+        fft_base[wm_i] *= hann_base[wm_i];
+        wm_i += 1;
+      );
+      fft_real(fft_base, FFT_SIZE);
+
+      // Max-pool source bins into each log-spaced output bin, then
+      // 10*log10(|X|^2) -> [-80, 0] -> [0, 1]. The -80dB floor gives the
+      // Lua-side LUT room to resolve quiet-but-real content (reverb tails,
+      // high-order ambisonic components) while a linear norm->colour map
+      // keeps noise floor dark. Multiple FFTs inside one disp_px max-pool
+      // against the ring.
+      spec_out_base = spec_buf_base + disp_px * BINS;
+      bin_o = 0;
+      loop(BINS,
+        src_lo = log_bin_lo_base[bin_o];
+        src_hi = log_bin_hi_base[bin_o];
+        max_mag2 = 0;
+        s_i = src_lo;
+        while (s_i <= src_hi) (
+          re = fft_base[2 * s_i];
+          im = fft_base[2 * s_i + 1];
+          m2 = re * re + im * im;
+          m2 > max_mag2 ? max_mag2 = m2;
+          s_i += 1;
+        );
+        mag_db = 10 * log(max_mag2 + 0.000000001) / log(10);
+        mag_db < -80 ? mag_db = -80;
+        mag_db > 0 ? mag_db = 0;
+        norm = (mag_db + 80) / 80;
+        cur_bin = gmem[spec_out_base + bin_o];
+        norm > cur_bin ? gmem[spec_out_base + bin_o] = norm;
+        bin_o += 1;
+      );
+
+      fft_write_pos = 0;
+    );
+  );
+);
+
+counter_norm = counter / buf_len;
+gmem[17] = counter_norm;
+
+@gfx 1 1
+
+function wmod(num, mod) (
+  num < 0 ? mod - ((num * -1) % mod) : num % mod;
+);
+
+function sample_buf(start_idx, num_frames)
+  local(temp_buf, i, j, x, sum, force_mono, out_nch, total, cpy_i) (
+  // Frame-align start index (multiple of nch). Belt-and-braces; callers
+  // already align, but a stray off-by-one here would interleave channels.
+  start_idx -= start_idx % nch;
+
+  temp_buf = buf_len + 1;
+  force_mono = gmem[5];
+  out_nch = force_mono == 1 ? 1 : nch;
+
+  // Clamp num_frames so the interleaved block fits the gmem staging buffer.
+  // Lua pulls samples from gmem[export_buf_base ...]; exceeding the cap
+  // would wrap into adjacent gmem regions and corrupt other scripts'
+  // shared memory, so clamp here and let Lua shorten the exported item.
+  num_frames * out_nch > EXPORT_BUF_SIZE ? (
+    num_frames = floor(EXPORT_BUF_SIZE / out_nch);
+  );
+
+  force_mono == 1 ? (
+    // Mono fold: average all captured channels per frame into one sample.
+    i = 0;
+    while (i < num_frames) (
+      sum = 0;
+      j = 0;
+      loop(nch,
+        x = wmod(start_idx + i * nch + j, buf_len);
+        sum += buf_pos[x];
+        j += 1;
+      );
+      temp_buf[i] = sum / nch;
+      i += 1;
+    );
+  ) : (
+    // Pass through at the captured channel count. Interleaved layout
+    // matches the gmem read order on the Lua side.
+    i = 0;
+    while (i < num_frames) (
+      j = 0;
+      loop(nch,
+        x = wmod(start_idx + i * nch + j, buf_len);
+        temp_buf[i * nch + j] = buf_pos[x];
+        j += 1;
+      );
+      i += 1;
+    );
+  );
+
+  // Copy interleaved samples into gmem so Lua can read and write a WAV
+  // file at any channel count. This replaces export_buffer_to_project()
+  // which was capped at 8 channels and silently failed above that.
+  total = num_frames * out_nch;
+  cpy_i = 0;
+  while (cpy_i < total) (
+    gmem[export_buf_base + cpy_i] = temp_buf[cpy_i];
+    cpy_i += 1;
+  );
+
+  // Metadata + ready flag. Lua polls EXPORT_READY (slot 14) each defer
+  // tick; on 1 it reads frames (15), nch (20), and buffer, writes WAV,
+  // inserts at cached position, then clears the flag.
+  gmem[15] = num_frames;
+  gmem[20] = out_nch;
+  gmem[14] = 1;
+);
+
+gmem[0] == 1 ? (
+  lock_writehead = 1;
+  export_type = gmem[1];
+
+  export_type == 2 ? (
+    last_secs = gmem[3];
+    num_frames = floor(last_secs * srate + 0.5);
+    num_frames > buf_dur * srate ? ( num_frames = buf_dur * srate; );
+    start_pos = counter - (num_frames * nch);
+    start_pos = wmod(start_pos, buf_len);
+    sample_buf(start_pos, num_frames);
+  );
+
+  export_type == 3 ? (
+    sel_s = gmem[6];
+    sel_w = gmem[7];
+    start_sample = floor(sel_s * buf_len);
+    start_sample -= start_sample % nch;
+    num_frames = floor(sel_w * buf_len / nch);
+    sample_buf(start_sample, num_frames);
+  );
+
+  gmem[0] = 0;
+  lock_writehead = 0;
+);

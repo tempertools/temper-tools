@@ -1746,6 +1746,37 @@ do
     toggle_time_unit  = function() vortex_mini_actions.toggle_time_unit(state) end,
     close             = function() state.should_close = true end,
   }
+
+  -- Testing harness registration: exposes projected state via _harness_dump
+  -- command when _TEMPER_HARNESS is set at launch.  Gated, so production
+  -- runs skip all of this.  See tests/harness/README.md.
+  if _TEMPER_HARNESS then
+    local _tts_ok, _tts = pcall(dofile, _lib .. "temper_test_state.lua")
+    if _tts_ok and type(_tts) == "table" and _tts.register and _tts.dump_to_file then
+      _tts.register(_SLIM_NS, function()
+        return {
+          status            = state.status,
+          error_msg         = state.error_msg,
+          mode              = state.mode,
+          target_guid       = state.target_guid,
+          child_name        = state.child_name,
+          parent_name       = state.parent_name,
+          include_track     = state.include_track,
+          user_query        = state.user_query,
+          not_text          = state.not_text,
+          result_count      = state.results and #state.results or 0,
+          raw_result_count  = state.raw_result_count,
+          current_idx       = state.current_idx,
+          lock_filepath     = state.lock_filepath,
+          inherit_props     = state.inherit_props,
+          prop_snapshot_set = state.prop_snapshot ~= nil,
+          should_close      = state.should_close,
+        }
+      end)
+      HANDLERS._harness_dump = function() _tts.dump_to_file() end
+    end
+  end
+
   rsg_actions.clear_pending_on_init(_SLIM_NS)
 
   local _first_loop = true

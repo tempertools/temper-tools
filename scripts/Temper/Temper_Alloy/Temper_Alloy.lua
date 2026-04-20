@@ -1,5 +1,5 @@
 -- @description Temper Alloy -- WAV Variant Merger
--- @version 1.2.2
+-- @version 1.2.3
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Alloy.lua
@@ -2113,6 +2113,29 @@ do
     delete_selected_files = function() _set_flash("delete_selected_files"); alloy_actions.delete_selected_files(state) end,
     close                 = function() state.should_close = true end,
   }
+
+  -- Testing harness registration: exposes projected state via _harness_dump
+  -- command when _TEMPER_HARNESS is set at launch.  Gated, so production
+  -- runs skip all of this.  See tests/harness/ for the scenario executor.
+  if _TEMPER_HARNESS then
+    local _tts_ok, _tts = pcall(dofile, _lib .. "temper_test_state.lua")
+    if _tts_ok and type(_tts) == "table" and _tts.register and _tts.dump_to_file then
+      _tts.register(_NS, function()
+        return {
+          status           = state.status,
+          input_mode       = state.input_mode,
+          scan_dir         = state.scan_dir,
+          files_count      = state.files and #state.files or 0,
+          groups_count     = state.groups and #state.groups or 0,
+          output_dir       = state.output_dir,
+          output_mode      = state.output_mode,
+          silence_trim_mode = state.silence_trim_mode,
+          should_close     = state.should_close,
+        }
+      end)
+      HANDLERS._harness_dump = function() _tts.dump_to_file() end
+    end
+  end
 
   rsg_actions.clear_pending_on_init(_NS)
 
