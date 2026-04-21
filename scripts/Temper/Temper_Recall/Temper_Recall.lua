@@ -1,5 +1,5 @@
 -- @description Temper Recall -- Rolling Audio Capture
--- @version 0.4.11
+-- @version 0.4.12
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Recall.lua
@@ -1115,6 +1115,21 @@ do
           -- Force gmem refresh so JSFX picks up the new nch next frame.
           R.gmem_write(GM.SET_NCH, n)
           clear_selections(st)
+          -- Propagate NCHAN to the user's currently-selected track too so
+          -- a print target stays matched to capture width. Skip if nothing
+          -- selected, if master itself is selected (already handled above),
+          -- or if the track already has the right channel count.
+          local sel = R.GetSelectedTrack(0, 0)
+          if sel and sel ~= master_tr then
+            local cur = math.floor(R.GetMediaTrackInfo_Value(sel, "I_NCHAN"))
+            if cur ~= n then
+              with_undo(
+                string.format("Temper Recall: match selected track to %dch", n),
+                function()
+                  R.SetMediaTrackInfo_Value(sel, "I_NCHAN", n)
+                end)
+            end
+          end
         end
       end
       if exceeds_device then
@@ -1198,7 +1213,10 @@ do
     -- captures that happened during total silence.
     local sig_ch  = st.last_capture_signal_ch
     local sig_dec = st.last_capture_declared_nch
-    if sig_dec >= 4 and sig_ch > 0 and sig_ch < sig_dec then
+    -- Allow 1-ch slack: 3OA 16-ch IRs intrinsically leave ch15 silent, so
+    -- "15 of 16" is expected. Stereo-into-8 and other real mismatches still
+    -- fire because they fall two or more channels short.
+    if sig_dec >= 4 and sig_ch > 0 and sig_ch < sig_dec - 1 then
       R.ImGui_Dummy(ctx_r, 0, 6)
       R.ImGui_PushStyleColor(ctx_r, R.ImGui_Col_Text(), SC.TERTIARY)
       R.ImGui_TextWrapped(ctx_r, string.format(
