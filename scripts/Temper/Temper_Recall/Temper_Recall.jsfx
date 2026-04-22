@@ -1,5 +1,5 @@
 noindex: true
-version: 0.3.7
+version: 0.3.8
 author: Temper Tools
 desc: Temper Recall Capture Engine
 
@@ -48,7 +48,7 @@ MAX_NCH = 16;
 // is the window length fed to fft_real; 1024 @ 48k ≈ 21.3ms per analysis frame,
 // giving cleaner frequency resolution with negligible temporal cost versus a
 // typical disp_px slot (≥ 20ms at 60s / 2048 slots @ 48k).
-BINS = 64;
+BINS = 96;
 FFT_SIZE = 1024;
 // Monotonic per-frame counter, never wraps. Feeds effective_nch staleness
 // detection: modular `counter` wraps at buf_len, so once a channel had
@@ -67,6 +67,13 @@ requested_buf_dur < 10 ? ( requested_buf_dur = 60; );
 new_nch = gmem[12];
 new_nch < 1 ? new_nch = 2;
 new_nch > MAX_NCH ? new_nch = MAX_NCH;
+
+// Spectral gain (user-tunable dB offset, live). Read each @block so
+// slider drags in Lua land immediately. spec_gain_slot is established
+// during the srate/buf_dur/nch reset branch; guard against a pristine
+// out-of-range value before that reset has fired.
+spec_gain_db = spec_gain_slot > 0 ? gmem[spec_gain_slot] : 0;
+abs(spec_gain_db) > 60 ? spec_gain_db = 0;
 
 (last_srate != srate) || (last_buf_dur != requested_buf_dur) || (last_nch != new_nch) ? (
   buf_pos = 0;
@@ -163,7 +170,23 @@ new_nch > MAX_NCH ? new_nch = MAX_NCH;
   // interleaved float samples directly from gmem after an export trigger.
   // Size cap (EXPORT_BUF_SIZE floats) is enforced in sample_buf() to keep
   // the gmem footprint under REAPER's ~8M-float per-name shared budget.
+  // Spectral gain control slot: user-tunable dB offset, lives in the
+  // 1024-slot guard band between spec ring and export staging so it can
+  // never collide with a display/spectral/export index. Lua mirrors
+  // this as GM.SPEC_GAIN_DB (same arithmetic, same slot).
+  spec_gain_slot = spec_buf_base + DISP_RES * BINS;
   export_buf_base = spec_buf_base + DISP_RES * BINS + 1024;
+
+  // FFT time window spans `span_slots` disp_px slots (one fft covers
+  // FFT_SIZE / srate seconds; each disp_px = buf_dur / DISP_RES seconds).
+  // At buf_dur=60s with FFT_SIZE=1024, span_slots=1. At buf_dur=30s,
+  // span_slots=2. At buf_dur=10s, span_slots=5. Writing the same FFT
+  // result to all span_slots prevents the "every other column is black"
+  // banding at short buffers (2026-04-20).
+  samples_per_slot = buf_len / (nch * DISP_RES);
+  span_slots = samples_per_slot > 0 ? ceil(FFT_SIZE / samples_per_slot) : 1;
+  span_slots < 1 ? span_slots = 1;
+  span_slots > DISP_RES ? span_slots = DISP_RES;
   EXPORT_BUF_SIZE = 7340032;  // 7M floats = ~28MB; ~9.5s @ 16ch/48k
 
   // export_buf_base is mirrored in Lua as a hardcoded constant (see
@@ -183,7 +206,7 @@ new_nch > MAX_NCH ? new_nch = MAX_NCH;
   // on startup and removes+reinstalls the JSFX on mismatch, so the user
   // never has to hand-Reload-JS after a version bump. Bump when the
   // Lua<->JSFX gmem contract changes.
-  gmem[10] = 13;
+  gmem[10] = 23;
 
   last_srate = srate;
   last_buf_dur = buf_dur;
@@ -251,6 +274,11 @@ lock_writehead == 0 && pause_state != 1 ? (
       fft_in_sum += s_j;
       j += 1;
     );
+    // Mono-fold normalisation: raw sum across nch channels would
+    // inflate by up to +24 dB on 16-channel ambisonic content and
+    // saturate the spectrogram across the visible band. Dividing by
+    // nch gives per-channel equivalent level (2026-04-20).
+    nch > 0 ? fft_in_sum = fft_in_sum / nch;
 
     disp_px = floor(counter_norm * disp_buf_size);
     disp_px >= disp_buf_size ? ( disp_px = disp_buf_size - 1; );
@@ -288,13 +316,15 @@ lock_writehead == 0 && pause_state != 1 ? (
       );
       fft_real(fft_base, FFT_SIZE);
 
-      // Max-pool source bins into each log-spaced output bin, then
-      // 10*log10(|X|^2) -> [-80, 0] -> [0, 1]. The -80dB floor gives the
-      // Lua-side LUT room to resolve quiet-but-real content (reverb tails,
-      // high-order ambisonic components) while a linear norm->colour map
-      // keeps noise floor dark. Multiple FFTs inside one disp_px max-pool
-      // against the ring.
-      spec_out_base = spec_buf_base + disp_px * BINS;
+      // Max-pool source bins into each log-spaced output bin, then run
+      // Audacity's spectrogram math (3.4+ `SpectrumCache.cpp` L25-38
+      // and `SpectrumView.cpp` L362-366): power-domain 10*log10 with
+      // a -160 dB zero-power sentinel, then a linear-in-dB normalise
+      // across a 100 dB window with a user-tunable gain offset.
+      // No gamma, no curve -- perceptual smoothness lives in the
+      // Lua-side Roseus palette, not in the magnitude math.
+      // Multiple FFTs inside one disp_px max-pool against the ring.
+      spec_base_px = disp_px;
       bin_o = 0;
       loop(BINS,
         src_lo = log_bin_lo_base[bin_o];
@@ -308,12 +338,31 @@ lock_writehead == 0 && pause_state != 1 ? (
           m2 > max_mag2 ? max_mag2 = m2;
           s_i += 1;
         );
-        mag_db = 10 * log(max_mag2 + 0.000000001) / log(10);
-        mag_db < -80 ? mag_db = -80;
-        mag_db > 0 ? mag_db = 0;
-        norm = (mag_db + 80) / 80;
-        cur_bin = gmem[spec_out_base + bin_o];
-        norm > cur_bin ? gmem[spec_out_base + bin_o] = norm;
+        // Power-domain dB with explicit zero-power sentinel
+        // (Audacity `SpectrumCache.cpp` L25-38). Keeps FP denormals
+        // out of the visible window and guarantees silent input at -160 dB.
+        max_mag2 > 0 ? mag_db = 10 * log(max_mag2) / log(10) : mag_db = -160;
+        // Linear-in-dB normalise across 100 dB window with user gain
+        // (Audacity `SpectrumView.cpp` L362-366 with range=100, gain=user).
+        // gain=0 -> ceiling at 0 dBFS / floor at -100 dB.
+        // gain=+10 -> ceiling at -10 / floor at -110 (more sensitive).
+        // gain=-10 -> ceiling at +10 / floor at -90 (less blown out).
+        norm = (mag_db + 100 + spec_gain_db) / 100;
+        norm < 0 ? norm = 0;
+        norm > 1 ? norm = 1;
+        // Write to all disp_px slots this FFT's time window spans,
+        // walking backwards from the current write head. Prevents
+        // banding at short buf_dur where FFT cadence is slower than
+        // disp_px cadence (span_slots computed in the reset branch).
+        spec_k = 0;
+        while (spec_k < span_slots) (
+          spec_target_px = spec_base_px - spec_k;
+          spec_target_px < 0 ? spec_target_px += DISP_RES;
+          spec_out_base = spec_buf_base + spec_target_px * BINS;
+          cur_bin = gmem[spec_out_base + bin_o];
+          norm > cur_bin ? gmem[spec_out_base + bin_o] = norm;
+          spec_k += 1;
+        );
         bin_o += 1;
       );
 

@@ -1,5 +1,5 @@
 -- @description Temper Recall -- Rolling Audio Capture
--- @version 0.4.12
+-- @version 0.5.5
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Recall.lua
@@ -57,7 +57,18 @@ local CONFIG = {
   quick_dur_min     = 1,
   quick_dur_max     = 30,
   force_mono_default  = false, -- mono fold on export; capture nch driven by JSFX num_ch
-  jsfx_proto_expected = 13,    -- bump with JSFX gmem[10] whenever protocol changes
+  jsfx_proto_expected = 23,    -- bump with JSFX gmem[10] whenever protocol changes
+  -- Spectrogram tuning converged via live user slider exploration on
+  -- typical IR/3OA content (2026-04-21). -45 dB gain + 435 permille
+  -- floor hits the sweet spot where tonal detail reads cleanly without
+  -- the background graininess that dominated at defaults. Range kept
+  -- wide in both directions for atypical material.
+  spec_gain_db_default = -45,
+  spec_gain_db_min     = -60,
+  spec_gain_db_max     = 20,
+  spec_thresh_permille_default = 435,
+  spec_thresh_permille_min     = 0,
+  spec_thresh_permille_max     = 500,
   view_mode_default = "waveform", -- "waveform" | "spectral"
   cue_col        = 0xDA7C5A80,  -- TERTIARY at 50% alpha (thin vertical tick)
   cue_enabled_default     = true,
@@ -72,7 +83,7 @@ local CONFIG = {
 -- max-pool, so resizing the window never reshuffles stored peaks.
 local DISP_RES = 2048
 -- Spectral bins per disp_px slot. Must match BINS in Temper_Recall.jsfx.
-local BINS = 64
+local BINS = 96
 
 local _script_path = debug.getinfo(1, "S").source:sub(2)
 local _lib         = (_script_path:match("^(.*)[\\/]") or ".") .. "/lib/"
@@ -122,14 +133,17 @@ local GM = {
   EXPORT_READY        = 14,  -- JSFX -> Lua: 1 when staging buffer populated
   EXPORT_NUM_FRAMES   = 15,  -- JSFX -> Lua: frames written to staging
   EXPORT_ACTUAL_NCH   = 20,  -- JSFX -> Lua: channel count of staged block (post mono fold)
+  -- Spectrogram user-gain (guard-band slot, outside every ring index).
+  -- = disp_buf_base + DISP_RES + DISP_RES*BINS = 21 + 2048 + 2048*96.
+  SPEC_GAIN_DB        = 198677,
 }
 
 -- Mirror of JSFX @block: export_buf_base = gmem_ctrl + 1 + DISP_RES + DISP_RES*BINS + 1024
---                                        = 21 + 2048 + 2048*64 + 1024 = 134165
+--                                        = 21 + 2048 + 2048*96 + 1024 = 199701
 -- Previously broadcast via gmem[25], but that slot sits inside the display ring
 -- (gmem[21..2068]) and was overwritten by @sample every frame. Hardcoding here
 -- removes the slot-collision fragility; the JSFX layout is compile-time-fixed.
-local EXPORT_BUF_BASE = 21 + 2048 + 2048 * 64 + 1024
+local EXPORT_BUF_BASE = 21 + 2048 + 2048 * 96 + 1024
 
 local function gm_read(slot)  return R.gmem_read(slot)  end
 local function gm_write(slot, val)  R.gmem_write(slot, val)  end
@@ -445,6 +459,25 @@ local function draw_icon_print(dl, cx, cy, col)
     col)
 end
 
+local function draw_icon_gear(dl, cx, cy, col)
+  -- Monochrome DrawList gear: 8 teeth dots + outlined ring body.
+  -- Replaces U+2699 text-button rendering to bypass OS-emoji
+  -- substitution under fallback fonts (LD-2026-04-017 pattern).
+  -- Sized to match the visual weight of U+2699 at 13pt (~12-13px
+  -- diameter) so Recall's gear reads at parity with suite Unicode
+  -- gears until Wave 4(b) is propagated suite-wide.
+  local R_TEETH  = 1.0
+  local R_CIRCUM = 5.3
+  local R_BODY   = 3.5
+  for i = 0, 7 do
+    local a  = (i / 8) * math.pi * 2 + math.pi / 8
+    local tx = cx + math.cos(a) * R_CIRCUM
+    local ty = cy + math.sin(a) * R_CIRCUM
+    R.ImGui_DrawList_AddCircleFilled(dl, tx, ty, R_TEETH, col, 8)
+  end
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, R_BODY, col, 20, 1.3)
+end
+
 local function icon_button(ctx_r, id, draw_icon, icon_col, bw, bh, bg, bg_hov, bg_act)
   local bx, by = R.ImGui_GetCursorScreenPos(ctx_r)
   local clicked = R.ImGui_InvisibleButton(ctx_r, id, bw, bh)
@@ -551,6 +584,10 @@ do
                                        CONFIG.cue_sensitivity_min, CONFIG.cue_sensitivity_max)
   local loaded_cue_spacing_ms  = clamp(load_setting_num("cue_spacing_ms",  CONFIG.cue_spacing_ms_default),
                                        CONFIG.cue_spacing_ms_min,  CONFIG.cue_spacing_ms_max)
+  local loaded_spec_gain_db    = clamp(load_setting_num("spec_gain_db", CONFIG.spec_gain_db_default),
+                                       CONFIG.spec_gain_db_min, CONFIG.spec_gain_db_max)
+  local loaded_spec_thresh_pm  = clamp(load_setting_num("spec_thresh_permille", CONFIG.spec_thresh_permille_default),
+                                       CONFIG.spec_thresh_permille_min, CONFIG.spec_thresh_permille_max)
 
   -- gmem attach
   R.gmem_attach(CONFIG.gmem_ns)
@@ -564,6 +601,7 @@ do
   R.gmem_write(GM.BUF_DUR, loaded_buf_dur)
   R.gmem_write(GM.PAUSE, 0)
   R.gmem_write(GM.FORCE_MONO, loaded_force_mono and 1 or 0)
+  R.gmem_write(GM.SPEC_GAIN_DB, loaded_spec_gain_db)
   -- Seed SET_NCH before JSFX's first @block so the initial buffer allocation
   -- sizes correctly for master.I_NCHAN. Per-frame updates keep it in sync.
   local _master = R.GetMasterTrack(0)
@@ -612,6 +650,12 @@ do
     cue_sensitivity = loaded_cue_sensitivity,
     cue_spacing_ms  = loaded_cue_spacing_ms,
     view_mode       = load_setting_str("view_mode", CONFIG.view_mode_default),
+    -- Spectrogram live controls. spec_thresh_permille is the integer
+    -- form (0..100) the slider edits; _spec_threshold is the divided
+    -- form (0.000..0.100) the render path reads.
+    spec_gain_db         = loaded_spec_gain_db,
+    spec_thresh_permille = loaded_spec_thresh_pm,
+    _spec_threshold      = loaded_spec_thresh_pm / 1000,
   }
 
   local function active_sel(st)
@@ -963,6 +1007,25 @@ do
         save_setting("cue_spacing_ms", v)
       end,
     },
+    spec_gain_db = {
+      label = "Spec gain", id = "##spec_gain_db",
+      min = CONFIG.spec_gain_db_min, max = CONFIG.spec_gain_db_max, fmt = "%d dB",
+      apply = function(st, v)
+        st.spec_gain_db = v
+        R.gmem_write(GM.SPEC_GAIN_DB, v)
+        save_setting("spec_gain_db", v)
+      end,
+    },
+    spec_thresh_permille = {
+      label = "Noise floor", id = "##spec_thresh_permille",
+      min = CONFIG.spec_thresh_permille_min, max = CONFIG.spec_thresh_permille_max,
+      fmt = "%d\xE2\x80\xAF\xE2\x80\xB0",
+      apply = function(st, v)
+        st.spec_thresh_permille = v
+        st._spec_threshold = v / 1000
+        save_setting("spec_thresh_permille", v)
+      end,
+    },
   }
 
   -- Render a labelled SliderInt for one SLIDER_CONFIGS key, with the
@@ -1277,6 +1340,20 @@ do
     R.ImGui_EndGroup(ctx_r)
     if not st.cue_enabled then R.ImGui_EndDisabled(ctx_r) end
 
+    -- Row: Spectrogram gain | Noise floor. Shown regardless of view_mode
+    -- so the user can tune while on WAVEFORM too, then flip back.
+    R.ImGui_Dummy(ctx_r, 0, 4)
+    R.ImGui_Separator(ctx_r)
+    R.ImGui_Dummy(ctx_r, 0, 2)
+    row_x, row_y = R.ImGui_GetCursorPos(ctx_r)
+    R.ImGui_BeginGroup(ctx_r)
+    persisted_slider(ctx_r, st, "spec_gain_db", COL_W)
+    R.ImGui_EndGroup(ctx_r)
+    R.ImGui_SetCursorPos(ctx_r, row_x + COL_W + COL_GAP, row_y)
+    R.ImGui_BeginGroup(ctx_r)
+    persisted_slider(ctx_r, st, "spec_thresh_permille", COL_W)
+    R.ImGui_EndGroup(ctx_r)
+
     -- Right-click slider popup for manual value entry. One-shot:
     -- OpenPopup fires exactly once per right-click request (mirrors
     -- Alloy's pattern so cross-script muscle memory carries over).
@@ -1425,14 +1502,16 @@ do
     R.ImGui_PopStyleColor(ctx_r, 1)
 
     -- Gear icon: pure floating glyph, no button chrome in any state.
+    -- DrawList geometry (not U+2699) so the OS can't substitute a
+    -- colour emoji under fallback fonts (LD-2026-04-017 pattern).
     R.ImGui_SetCursorPos(ctx_r, w - 30, 2)
-    R.ImGui_PushStyleColor(ctx_r, R.ImGui_Col_Button(),        0x00000000)
-    R.ImGui_PushStyleColor(ctx_r, R.ImGui_Col_ButtonHovered(), 0x00000000)
-    R.ImGui_PushStyleColor(ctx_r, R.ImGui_Col_ButtonActive(),  0x00000000)
-    if R.ImGui_Button(ctx_r, "\xe2\x9a\x99##gear", 22, 22) then
+    if icon_button(ctx_r, "##gear", draw_icon_gear, SC.PRIMARY,
+                   22, 22, 0x00000000, 0x00000000, 0x00000000) then
       R.ImGui_OpenPopup(ctx_r, "##settings_recall")
     end
-    R.ImGui_PopStyleColor(ctx_r, 3)
+    if R.ImGui_IsItemHovered(ctx_r) then
+      R.ImGui_SetTooltip(ctx_r, "Settings")
+    end
 
     settings_popup(ctx_r, st, lic_mod, lic_status, routing)
 
@@ -1532,19 +1611,34 @@ do
     return (r << 24) | (g << 16) | (bl << 8) | al
   end
   local function build_spec_lut()
-    -- Linear norm -> colour map. JSFX already does the dB -> [0,1]
-    -- compression (mag_db in [-80, 0] -> norm in [0, 1]), so an extra
-    -- curve here double-compresses and pushes quiet content into
-    -- PRIMARY territory.
+    -- Roseus 9-stop ramp -- reproduces Audacity 3.4+'s 256-entry
+    -- perceptually-uniform CAM16-UCS LUT to ~1% via linear interpolation.
+    -- Source: dofuuz/roseus, baked into Audacity via AColor::GetColorGradient.
+    -- JSFX normalises to [0,1] linearly in dB (no curve), so perceptual
+    -- smoothness comes entirely from this LUT being monotone-luminance.
+    -- Intentionally off-brand for v0.5.0; brand-adjacent perceptually-uniform
+    -- palette is a tracked follow-up once the math is visually confirmed.
+    local stops = {
+      {0.000, 0x010101FF},  -- near-black
+      {0.125, 0x023B76FF},  -- deep indigo
+      {0.250, 0x41248DFF},  -- violet
+      {0.375, 0xA6189AFF},  -- magenta
+      {0.500, 0x92159EFF},  -- purple-pink
+      {0.625, 0xF8B05EFF},  -- warm orange
+      {0.750, 0xECDAA5FF},  -- pale gold
+      {0.875, 0xF7F7F0FF},  -- cream
+      {1.000, 0xFFFAF9FF},  -- off-white
+    }
     spec_lut = {}
     for i = 0, LUT_N - 1 do
       local norm = i / (LUT_N - 1)
-      local c1, c2, t
-      if norm < 0.6 then
-        c1, c2, t = SC.PANEL, SC.PRIMARY, norm / 0.6
-      else
-        c1, c2, t = SC.PRIMARY, SC.TERTIARY, (norm - 0.6) / 0.4
+      local s = 1
+      while s < #stops - 1 and norm > stops[s + 1][1] do
+        s = s + 1
       end
+      local t0, c1 = stops[s][1], stops[s][2]
+      local t1, c2 = stops[s + 1][1], stops[s + 1][2]
+      local t = (norm - t0) / (t1 - t0)
       spec_lut[i] = lerp_rgba(c1, c2, t)
     end
   end
@@ -1613,9 +1707,11 @@ do
         local decayed = prev * decay
         local norm = (fresh > decayed) and fresh or decayed
         col_row[b] = norm
-        -- Threshold skips drawing silent cells, keeping the DrawList
-        -- cost proportional to visible content rather than window area.
-        if norm > 0.08 then
+        -- Threshold is a DrawList perf optimisation -- the JSFX math
+        -- already puts silent input at norm=0 (Audacity recipe: -160 dB
+        -- zero-power sentinel + clamp at the -100 dB window floor), so
+        -- this only skips denormal-adjacent fully-black cells.
+        if norm > st._spec_threshold then
           if norm > 1.0 then norm = 1.0 end
           local lut_idx = math.floor(norm * lut_max + 0.5)
           local y_hi = dy + disp_h - (b + 1) * cell_h
