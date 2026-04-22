@@ -169,6 +169,98 @@ function M.is_valid_project(dir)
   return _find_any_ext(dir, _PROJECT_EXTS, 5000)
 end
 
+-- ── Source size (budgeted directory-tree byte sum) ──────────────
+-- Sum the uncompressed byte size of every file under `root`, used as the
+-- denominator for within-item archive progress. Bounded by both an entry
+-- count and a wall-clock budget so the call cannot stall the ImGui frame
+-- even on pathological trees. Returns nil if either budget is exhausted
+-- (caller falls back to indeterminate progress).
+function M.source_size(root, max_entries, max_wall_sec)
+  if not root or root == "" then return nil end
+  if not _is_dir(root) then return nil end
+  max_entries  = max_entries  or 10000
+  max_wall_sec = max_wall_sec or 0.5
+
+  local deadline
+  if reaper and reaper.time_precise then
+    deadline = reaper.time_precise() + max_wall_sec
+  else
+    deadline = os.clock() + max_wall_sec
+  end
+  local now_fn = (reaper and reaper.time_precise) or os.clock
+
+  local total   = 0
+  local checked = 0
+  local stack   = { root }
+  while #stack > 0 do
+    if checked >= max_entries then return nil end
+    if now_fn() > deadline then return nil end
+    local dir = table.remove(stack)
+    local fi = 0
+    while true do
+      local fname
+      if reaper and reaper.EnumerateFiles then
+        fname = reaper.EnumerateFiles(dir, fi)
+      else
+        fname = nil
+      end
+      if not fname then break end
+      checked = checked + 1
+      if checked >= max_entries then return nil end
+      local sz = _file_size(dir .. "/" .. fname)
+      if sz then total = total + sz end
+      fi = fi + 1
+    end
+    local si = 0
+    while true do
+      local sub
+      if reaper and reaper.EnumerateSubdirectories then
+        sub = reaper.EnumerateSubdirectories(dir, si)
+      else
+        sub = nil
+      end
+      if not sub then break end
+      stack[#stack + 1] = dir .. "/" .. sub
+      si = si + 1
+    end
+    -- Headless fallback (unit tests): if REAPER enumeration is unavailable,
+    -- use a single shell walk. Returns nil on any error so the caller falls
+    -- back to indeterminate progress.
+    if not (reaper and reaper.EnumerateFiles) then
+      return _shell_walk_sum_bytes(root, max_entries, deadline, now_fn)
+    end
+  end
+  return total
+end
+
+-- Headless fallback for M.source_size. Uses `dir /s /b` (Windows) or
+-- `find ... -printf %s` (POSIX) to collect file sizes. Only used when
+-- reaper.EnumerateFiles is unavailable (i.e. unit tests).
+function _shell_walk_sum_bytes(root, max_entries, deadline, now_fn)
+  if not _is_dir(root) then return nil end
+  local cmd
+  if package.config:sub(1, 1) == "\\" then
+    -- dir /s /b /a-d lists files; stat each separately via io.open.
+    cmd = string.format('dir /s /b /a-d "%s" 2>nul', (root:gsub("/", "\\")))
+  else
+    cmd = string.format('find "%s" -type f 2>/dev/null', root)
+  end
+  local p = io.popen(cmd)
+  if not p then return nil end
+  local total, checked = 0, 0
+  for line in p:lines() do
+    if now_fn() > deadline then p:close(); return nil end
+    checked = checked + 1
+    if checked > max_entries then p:close(); return nil end
+    if line ~= "" then
+      local sz = _file_size(line)
+      if sz then total = total + sz end
+    end
+  end
+  p:close()
+  return total
+end
+
 -- ── Archive identity (case-insensitive <name>.zip lookup) ───────
 
 -- List top-level files in `out_dir`. Uses REAPER's EnumerateFiles when
@@ -365,8 +457,8 @@ end
 -- memory and throws "Stream was too long" at the 2 GB boundary. The .NET
 -- API streams directly to disk and has no size limit. Same PKZIP output.
 local function _write_win_job(src_abs, dest_part, sentinel, script_path)
-  local f = io.open(script_path, "w")
-  if not f then return false end
+  local f, open_err = io.open(script_path, "w")
+  if not f then return false, "io.open(" .. tostring(script_path) .. "): " .. tostring(open_err) end
   f:write(string.format(
     "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
     .. "try {\n"
@@ -383,8 +475,8 @@ end
 
 local function _write_mac_job(src_abs, dest_part, sentinel, script_path)
   local parent, leaf = _parent_and_leaf(src_abs)
-  local f = io.open(script_path, "w")
-  if not f then return false end
+  local f, open_err = io.open(script_path, "w")
+  if not f then return false, "io.open(" .. tostring(script_path) .. "): " .. tostring(open_err) end
   f:write(string.format(
     "#!/bin/sh\ncd %s && zip -r -q %s %s 2>/dev/null\necho $? > %s\n",
     M.shell_quote(parent), M.shell_quote(dest_part),
@@ -414,36 +506,39 @@ function M.compress_start(src_dir, dest_final)
   _remove_silent(dest_part)
   _remove_silent(sentinel)
 
-  local ok
+  local ok, write_err
   if platform == "win" then
-    ok = _write_win_job(src_dir, dest_part, sentinel, script_path)
+    ok, write_err = _write_win_job(src_dir, dest_part, sentinel, script_path)
     if ok then
-      -- Launch PowerShell detached via `cmd /c start /B`. io.popen targets
-      -- cmd.exe which spawns PowerShell then exits immediately. We close
-      -- the handle right away -- pclose won't block because cmd.exe is
-      -- already gone. PowerShell runs independently; the sentinel file
-      -- signals completion.
-      --
-      -- Why not io.popen(powershell ...) directly? pclose blocks until the
-      -- child exits. Even if we store the handle, the open read-pipe can
-      -- cause PowerShell to block on stdout writes that nobody reads.
-      -- Why not os.execute? It calls system() which blocks the Lua VM.
-      -- /D sets cmd's working dir to a local path so UNC output dirs
-      -- don't trigger "CMD does not support UNC paths as current directories".
-      local h = io.popen(string.format(
-        'cmd /D /C "cd /D %s && start "" /B powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \\"%s\\""',
-        tmp_dir, script_path
-      ))
-      if h then h:close() end
+      -- Launch PowerShell detached via `cmd /c start /B "" powershell …`
+      -- wrapped in reaper.ExecProcess. The outer `start /B` returns
+      -- immediately, so the wrapping cmd exits in ms and ExecProcess with
+      -- timeoutmsec=0 returns right after. This is the same async-launch
+      -- idiom used by other REAPER scripts (ABS, ACendan) and avoids the
+      -- nested-quote trap that broke the prior io.popen construction:
+      -- `cmd /D /C "cd /D … && start "" /B powershell … -File \"…\""`
+      -- mangled under cmd.exe quote rules, leaving PowerShell with a
+      -- garbled -File arg that it silently failed to parse.
+      local cmd_str = string.format(
+        'cmd /c start /B "" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s"',
+        script_path
+      )
+      reaper.ExecProcess(cmd_str, 0)
     end
   else
-    ok = _write_mac_job(src_dir, dest_part, sentinel, script_path)
+    ok, write_err = _write_mac_job(src_dir, dest_part, sentinel, script_path)
     if ok then
-      os.execute(string.format('chmod +x %s && %s &',
+      local launch_ok = os.execute(string.format('chmod +x %s && %s &',
         M.shell_quote(script_path), M.shell_quote(script_path)))
+      if launch_ok == nil or launch_ok == false then
+        _remove_silent(script_path)
+        return nil, "launch failed (os.execute): chmod/detach non-zero"
+      end
     end
   end
-  if not ok then return nil, "failed to write job script" end
+  if not ok then
+    return nil, "failed to write job script: " .. tostring(write_err or "unknown")
+  end
   return sentinel, dest_part, script_path
 end
 

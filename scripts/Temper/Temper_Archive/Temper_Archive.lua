@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.8
+-- @version 1.3.10
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
@@ -384,6 +384,9 @@ local function archive_begin(state)
   state.archive_fail       = 0
   state.archive_cancel     = 0
   state._compress_job      = nil
+  state._footer_bytes_cache = nil
+  state.footer_warning     = nil           -- clear stale reason from prior run
+  state.footer_warning_ts  = nil
   state.current_stage      = "preparing"
   state.current_row        = queue[1]
   state.status             = "archiving"
@@ -495,6 +498,14 @@ local function archive_tick(state)
   state.current_stage = "preparing"
   local suffix     = archive.next_collision_suffix(state.output_dir, row.name)
   local dest_final = state.output_dir .. "/" .. row.name .. suffix .. ".zip"
+
+  -- Precompute uncompressed source size so the footer can show a within-item
+  -- progress bar. Budgeted to 10 000 files / 500 ms; trees larger than that
+  -- fall back to nil and the footer uses indeterminate progress. Cached on
+  -- the row so a resumed queue (future feature) doesn't recompute.
+  if row._source_bytes == nil then
+    row._source_bytes = archive.source_size(row.path, 10000, 0.5)
+  end
 
   -- Launch background compress.
   state.current_stage = "compressing"
@@ -1084,22 +1095,63 @@ local function render_footer(ctx, state)
   if state.status == "archiving" and state.queue then
     local total = #state.queue
     local idx = state.archive_idx or 1
-    local pct = (idx - 1) / math.max(1, total)
+    local row = state.current_row
+    -- Compute within-item fraction from cached byte count vs. precomputed
+    -- source size. Cap at 0.98 because compression ratio is unknown and we
+    -- don't want to show "100 %" before the .zip is actually finalized.
+    local item_frac = 0
+    -- Throttle compress_progress polling to 4 Hz. The raw call does io.open
+    -- / seek / close on the growing _tmp.zip every ImGui frame, which
+    -- stalls the main loop 20–200 ms per call under antivirus or slow
+    -- disks. Cache is invalidated when _compress_job flips to a new item.
+    local cur_bytes = 0
+    if state._compress_job and state._compress_job.dest_part then
+      local now = R.time_precise()
+      local c = state._footer_bytes_cache
+      if not c or c.job ~= state._compress_job or (now - c.ts) >= 0.25 then
+        state._footer_bytes_cache = {
+          job   = state._compress_job,
+          ts    = now,
+          bytes = archive.compress_progress(state._compress_job.dest_part) or 0,
+        }
+      end
+      cur_bytes = state._footer_bytes_cache.bytes or 0
+      if row and row._source_bytes and row._source_bytes > 0 then
+        item_frac = math.min(cur_bytes / row._source_bytes, 0.98)
+      end
+    end
+    local pct = ((idx - 1) + item_frac) / math.max(1, total)
     -- Progress fill only during active archiving.
     R.ImGui_DrawList_AddRectFilled(dl, x, y, x + w * pct, y + CONFIG.footer_h, COL.PRIMARY_AC)
     show_progress_bg = true
-    local name = (state.current_row and state.current_row.name) or ""
+    local name = (row and row.name) or ""
     local bytes_str = ""
-    if state._compress_job and state._compress_job.dest_part then
-      local cur = archive.compress_progress(state._compress_job.dest_part)
-      if cur and cur > 0 then bytes_str = " (" .. fmt_bytes(cur) .. ")" end
+    if cur_bytes and cur_bytes > 0 then
+      bytes_str = " (" .. fmt_bytes(cur_bytes) .. ")"
     end
     left_text = string.format("  Archiving [%d/%d]: %s%s", idx, total, name, bytes_str)
-    right_text = (state.current_stage or "") .. "  "
+    -- Live stage indicator: animated spinner + elapsed seconds so the user
+    -- can tell the background process is alive even when the byte counter
+    -- hasn't refreshed yet (e.g. during PowerShell startup).
+    local elapsed = (state._compress_start_ts
+      and (R.time_precise() - state._compress_start_ts)) or 0
+    local spin_chars = { ".  ", ".. ", "..." }
+    local spin_idx   = (math.floor(elapsed * 2) % 3) + 1
+    local stage      = state.current_stage or "compressing"
+    right_text = string.format("%s%s  %ds  ",
+      stage, spin_chars[spin_idx], math.floor(elapsed))
   elseif state.status == "archive_failed" then
-    left_text = "  Archive failed."
+    -- Surface the actual reason instead of a dead-end "Archive failed."
+    -- string. footer_warning is set by flash_warning() in archive_tick on
+    -- every failure branch and already includes the prefix "Archive failed: ".
+    local reason = state.footer_warning
+    if reason and reason ~= "" then
+      left_text = "  " .. reason
+    else
+      left_text = "  Archive failed (see temper_archive.log for details)."
+    end
     left_col = COL.ERROR_RED
-    right_text = "  "
+    right_text = "see temper_archive.log  "
   elseif state.status == "archive_done" then
     left_text = string.format("  Done: %d archived, %d failed  ",
       state.archive_ok or 0, state.archive_fail or 0)
