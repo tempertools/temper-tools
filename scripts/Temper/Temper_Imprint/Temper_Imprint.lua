@@ -1,5 +1,5 @@
 -- @description Temper Imprint -- Property Selection & Paste Properties
--- @version 1.3.8
+-- @version 1.3.10
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Imprint.lua
@@ -305,6 +305,8 @@ local function _persist_snapshot(snapshot)
     tostring(snapshot.source_length or 0), true)
   reaper.SetExtState(_IMP_NS, "snap_count",
     tostring(snapshot.count or 1), true)
+  reaper.SetExtState(_IMP_NS, "snap_source_item_guid",
+    snapshot.source_item_guid or "", true)
 end
 
 local function _restore_snapshot()
@@ -321,11 +323,13 @@ local function _restore_snapshot()
   end
   slot.fx_chunk = reaper.GetExtState(_IMP_NS, "snap_fx_chunk")
   local src_len = tonumber(reaper.GetExtState(_IMP_NS, "snap_source_length")) or 0
+  local src_guid = reaper.GetExtState(_IMP_NS, "snap_source_item_guid")
   return {
-    tracks        = { ["__default__"] = slot },
-    enabled       = {},
-    count         = tonumber(count_str) or 1,
-    source_length = src_len,
+    tracks           = { ["__default__"] = slot },
+    enabled          = {},
+    count            = tonumber(count_str) or 1,
+    source_length    = src_len,
+    source_item_guid = src_guid ~= "" and src_guid or nil,
   }
 end
 
@@ -390,12 +394,18 @@ local function _do_copy(state)
     end
   end
 
+  -- Source item GUID — used at paste time to skip FX re-application on the
+  -- source item itself (prevents duplicate-FXID corruption that makes the
+  -- source appear to "lose" its FX when it's included in the paste selection).
+  local _, source_item_guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+
   -- Build snapshot in same format _pp.apply_to_item expects.
   state.snapshot = {
-    tracks        = { ["__default__"] = slot },
-    enabled       = {},  -- will be built from checks at paste time
-    count         = 1,
-    source_length = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
+    tracks           = { ["__default__"] = slot },
+    enabled          = {},  -- will be built from checks at paste time
+    count            = 1,
+    source_length    = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
+    source_item_guid = source_item_guid ~= "" and source_item_guid or nil,
   }
   state.has_source   = true
   state.source_count = count
@@ -472,7 +482,15 @@ end
 -- Returns true if the keyboard-dispatched flash for `btn_key` is still active.
 -- Used by render_* functions to swap a button's background to its pressed shade
 -- while the flash timer is live, visually mimicking a mouse click.
+--
+-- Harness-only: when _TEMPER_HARNESS is set, state._harness_hold_flash[btn_key]
+-- forces the flash to read as active regardless of the real timer. This lets
+-- the testing harness capture the 250ms-flashed button state in a static
+-- screenshot (the real flash window is shorter than the screenshot settle).
 local function _is_btn_flashing(state, btn_key)
+  if _TEMPER_HARNESS and state._harness_hold_flash and state._harness_hold_flash[btn_key] then
+    return true
+  end
   local expires_at = state._btn_flash and state._btn_flash[btn_key]
   return expires_at ~= nil and reaper.time_precise() < expires_at
 end
@@ -1075,6 +1093,7 @@ do
                             -- render, mimicking the natural ImGui mouse-click feedback
                             -- that keyboard paths skip. Mouse clicks go straight to
                             -- imprint_actions and rely on ImGui's built-in active state.
+    _harness_hold_flash = {}, -- harness-only: test_runner toggles to hold flash indefinitely
   }
 
   -- ── Action dispatch (rsg_actions framework) ───────────────────
@@ -1101,6 +1120,57 @@ do
     apply_preset_6 = function() _set_flash("apply_preset_6"); imprint_actions.apply_preset_6(state) end,
     close          = function() state.should_close = true end,
   }
+  -- Harness-only hold_flash/unhold_flash commands: mirror every real
+  -- flash-emitting command with a test-mode twin that keeps the flash
+  -- rendered indefinitely (for screenshot capture). Gated on
+  -- _TEMPER_HARNESS so production users never see them in the manifest
+  -- or action list; generated inline so each handler satisfies the
+  -- `function` prefix that test_manifest_sync's regex enforces.
+  if _TEMPER_HARNESS then
+    HANDLERS._harness_hold_copy           = function() state._harness_hold_flash["copy"]           = true end
+    HANDLERS._harness_hold_paste          = function() state._harness_hold_flash["paste"]          = true end
+    HANDLERS._harness_hold_apply_preset_1 = function() state._harness_hold_flash["apply_preset_1"] = true end
+    HANDLERS._harness_hold_apply_preset_2 = function() state._harness_hold_flash["apply_preset_2"] = true end
+    HANDLERS._harness_hold_apply_preset_3 = function() state._harness_hold_flash["apply_preset_3"] = true end
+    HANDLERS._harness_hold_apply_preset_4 = function() state._harness_hold_flash["apply_preset_4"] = true end
+    HANDLERS._harness_hold_apply_preset_5 = function() state._harness_hold_flash["apply_preset_5"] = true end
+    HANDLERS._harness_hold_apply_preset_6 = function() state._harness_hold_flash["apply_preset_6"] = true end
+    HANDLERS._harness_unhold_all          = function() state._harness_hold_flash = {} end
+
+    -- State projection for LD-2026-04-027 scenario. Scans the project for
+    -- items tagged via P_EXT:imprint_test_tag and reports the number of
+    -- <VST ...> blocks in each item's state chunk. Primary bug: after
+    -- COPY-then-PASTE with source included in the selection, the source
+    -- must still have 1 VST (not 0) and the target with pre-existing FX
+    -- must have 2 VST (original + appended).
+    local _tts_ok, _tts = pcall(dofile, _lib .. "temper_test_state.lua")
+    if _tts_ok and type(_tts) == "table" and _tts.register and _tts.dump_to_file then
+      _tts.register(_IMP_NS, function()
+        local s_count, t_count = -1, -1
+        local n_tracks = reaper.CountTracks(0)
+        for t = 0, n_tracks - 1 do
+          local tr = reaper.GetTrack(0, t)
+          local n_items = reaper.CountTrackMediaItems(tr)
+          for i = 0, n_items - 1 do
+            local it = reaper.GetTrackMediaItem(tr, i)
+            local _, tag = reaper.GetSetMediaItemInfo_String(it, "P_EXT:imprint_test_tag", "", false)
+            if tag == "source" or tag == "target" then
+              local _, chunk = reaper.GetItemStateChunk(it, "", false)
+              local _, n = chunk:gsub("<VST ", "<VST ")
+              if tag == "source" then s_count = n else t_count = n end
+            end
+          end
+        end
+        return {
+          has_snapshot       = state.snapshot ~= nil,
+          source_vst_count   = s_count,
+          target_vst_count   = t_count,
+          source_guid_stored = state.snapshot and state.snapshot.source_item_guid or nil,
+        }
+      end)
+      HANDLERS._harness_dump = function() _tts.dump_to_file() end
+    end
+  end
   rsg_actions.clear_pending_on_init(_IMP_NS)
 
   local _first_loop = true

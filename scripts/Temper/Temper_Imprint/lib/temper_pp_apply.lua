@@ -187,10 +187,14 @@ local function _pp_apply_takefx(item, take_idx, fx_chunk)
   else
     final_fx = fx_chunk:gsub("%s+$", "")
   end
-  container   = _pp_remove_block(container, "TAKEFX"):gsub("%s+$", "")
-  local cp    = container:match("^.*()\n>$")
-  if not cp then return false end
-  local new_container = container:sub(1, cp) .. "\n" .. final_fx .. "\n>"
+  container = _pp_remove_block(container, "TAKEFX"):gsub("%s+$", "")
+  -- Backward-scan for the container's closing '>'. Cannot rely on '\n>'
+  -- because _pp_remove_block eats the newlines on both sides of the removed
+  -- block, producing adjacent '>>' when TAKEFX was wedged between two blocks.
+  local cp = #container
+  while cp > 1 and container:sub(cp, cp) ~= ">" do cp = cp - 1 end
+  if cp <= 1 then return false end
+  local new_container = container:sub(1, cp - 1) .. "\n" .. final_fx .. "\n>"
   local new_chunk     = item_chunk:sub(1, c_s - 1) .. new_container .. item_chunk:sub(c_e + 1)
   return reaper.SetItemStateChunk(item, new_chunk, false)
 end
@@ -353,7 +357,18 @@ local function _pp_apply_to_item(snapshot, item, track_guid)
     reaper.SetMediaItemInfo_Value(item, "D_FADEOUTLEN", fo_len * scale)
   end
   if snapshot.enabled["i_fx"] and slot.fx_chunk ~= "" then
-    _pp_apply_takefx(item, take_idx, slot.fx_chunk)
+    -- Skip FX re-application when target IS the source item. Appending a copy
+    -- of the source's own FX to itself produces duplicate FXID entries, which
+    -- REAPER's state-chunk parser does not tolerate — resulting in the source
+    -- appearing to lose its FX entirely.
+    local skip = false
+    if snapshot.source_item_guid then
+      local _, target_guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+      if target_guid == snapshot.source_item_guid then skip = true end
+    end
+    if not skip then
+      _pp_apply_takefx(item, take_idx, slot.fx_chunk)
+    end
   end
 end
 
