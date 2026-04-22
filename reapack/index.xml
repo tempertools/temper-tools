@@ -193,7 +193,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Recall.lua" type="script" desc="Temper Recall -- Rolling Audio Capture">
-      <version name="0.5.5" author="Temper Tools" time="2026-04-22T03:06:39Z">
+      <version name="0.5.6" author="Temper Tools" time="2026-04-22T03:58:05Z">
         <source file="Temper_Recall/Temper_Recall.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/Temper_Recall.lua</source>
         <source file="Temper_Recall/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/lib/temper_actions.lua</source>
         <source file="Temper_Recall/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/lib/temper_activation_dialog.lua</source>

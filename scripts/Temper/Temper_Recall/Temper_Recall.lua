@@ -1,5 +1,5 @@
 -- @description Temper Recall -- Rolling Audio Capture
--- @version 0.5.5
+-- @version 0.5.6
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Recall.lua
@@ -1595,52 +1595,33 @@ do
   -- rounds to one of LUT_N-1 buckets. Hot path stays a single table lookup.
   local LUT_N = 64
   local spec_lut = nil
-  local function lerp_rgba(a, b, t)
-    local ar = (a >> 24) & 0xFF
-    local ag = (a >> 16) & 0xFF
-    local ab = (a >> 8)  & 0xFF
-    local aa = a & 0xFF
-    local br = (b >> 24) & 0xFF
-    local bg = (b >> 16) & 0xFF
-    local bb = (b >> 8)  & 0xFF
-    local ba = b & 0xFF
-    local r  = math.floor(ar + (br - ar) * t + 0.5)
-    local g  = math.floor(ag + (bg - ag) * t + 0.5)
-    local bl = math.floor(ab + (bb - ab) * t + 0.5)
-    local al = math.floor(aa + (ba - aa) * t + 0.5)
-    return (r << 24) | (g << 16) | (bl << 8) | al
-  end
+  -- Brand spectrogram palette: 6 stops {near-black, deep teal, SC.PRIMARY
+  -- teal 0x26A69A, SC.TERTIARY peach 0xDA7C5A, warm cream, off-white}
+  -- walked as a straight monotone-L line in OkLab, then baked to this
+  -- 64-entry sRGB table. Roseus (Audacity 3.4+ CAM16-UCS) was the v0.5.0
+  -- placeholder; this replaces it with an on-brand ramp without giving up
+  -- perceptual smoothness. JSFX normalises to [0,1] linearly in dB, so
+  -- all perceptual work lives here in the LUT.
+  local SPEC_LUT_DATA = {
+    0x050709FF, 0x060B0DFF, 0x070F12FF, 0x081316FF,
+    0x0A171BFF, 0x0B1B20FF, 0x0C1F25FF, 0x0C2429FF,
+    0x0D282FFF, 0x0E2D34FF, 0x0E3239FF, 0x0F363EFF,
+    0x103D44FF, 0x12444AFF, 0x144C50FF, 0x155357FF,
+    0x175B5DFF, 0x196363FF, 0x1A6A6AFF, 0x1C7270FF,
+    0x1E7A77FF, 0x1F837DFF, 0x218B84FF, 0x23938BFF,
+    0x249C92FF, 0x26A499FF, 0x3EA597FF, 0x52A393FF,
+    0x62A190FF, 0x6F9F8CFF, 0x7B9D88FF, 0x869B84FF,
+    0x909881FF, 0x9A967DFF, 0xA39379FF, 0xAC9075FF,
+    0xB48E70FF, 0xBC8A6CFF, 0xC48768FF, 0xCC8463FF,
+    0xD3805FFF, 0xDA7C5AFF, 0xDC8361FF, 0xDF8968FF,
+    0xE18F6FFF, 0xE39575FF, 0xE59B7CFF, 0xE7A283FF,
+    0xE8A88AFF, 0xEAAE90FF, 0xECB497FF, 0xEEBA9EFF,
+    0xEFC0A5FF, 0xF1C6ABFF, 0xF2CCB2FF, 0xF3D2B9FF,
+    0xF5D8C0FF, 0xF6DCC7FF, 0xF8E1CEFF, 0xF9E5D5FF,
+    0xFBEADDFF, 0xFCEFE4FF, 0xFEF3EBFF, 0xFFF8F2FF,
+  }
   local function build_spec_lut()
-    -- Roseus 9-stop ramp -- reproduces Audacity 3.4+'s 256-entry
-    -- perceptually-uniform CAM16-UCS LUT to ~1% via linear interpolation.
-    -- Source: dofuuz/roseus, baked into Audacity via AColor::GetColorGradient.
-    -- JSFX normalises to [0,1] linearly in dB (no curve), so perceptual
-    -- smoothness comes entirely from this LUT being monotone-luminance.
-    -- Intentionally off-brand for v0.5.0; brand-adjacent perceptually-uniform
-    -- palette is a tracked follow-up once the math is visually confirmed.
-    local stops = {
-      {0.000, 0x010101FF},  -- near-black
-      {0.125, 0x023B76FF},  -- deep indigo
-      {0.250, 0x41248DFF},  -- violet
-      {0.375, 0xA6189AFF},  -- magenta
-      {0.500, 0x92159EFF},  -- purple-pink
-      {0.625, 0xF8B05EFF},  -- warm orange
-      {0.750, 0xECDAA5FF},  -- pale gold
-      {0.875, 0xF7F7F0FF},  -- cream
-      {1.000, 0xFFFAF9FF},  -- off-white
-    }
-    spec_lut = {}
-    for i = 0, LUT_N - 1 do
-      local norm = i / (LUT_N - 1)
-      local s = 1
-      while s < #stops - 1 and norm > stops[s + 1][1] do
-        s = s + 1
-      end
-      local t0, c1 = stops[s][1], stops[s][2]
-      local t1, c2 = stops[s + 1][1], stops[s + 1][2]
-      local t = (norm - t0) / (t1 - t0)
-      spec_lut[i] = lerp_rgba(c1, c2, t)
-    end
+    spec_lut = SPEC_LUT_DATA
   end
 
   local function render_spectrogram(ctx_r, st)
