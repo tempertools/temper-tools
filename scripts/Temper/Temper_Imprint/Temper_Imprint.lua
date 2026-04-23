@@ -7,6 +7,9 @@
 --   [nomain] lib/temper_pp_apply.lua
 --   [nomain] lib/temper_track_utils.lua
 --   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_license.lua
+--   [nomain] lib/temper_activation_dialog.lua
+--   [nomain] lib/temper_sha256.lua
 -- @about
 --   Temper Imprint is a property selection GUI for the Temper suite.
 --   It controls which item/take properties are enabled for Copy/Paste

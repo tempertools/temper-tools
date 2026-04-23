@@ -36,6 +36,8 @@
 --   lib/temper_routing_math.lua
 --   lib/temper_theme.lua
 --   lib/temper_license.lua
+--   lib/temper_activation_dialog.lua
+--   lib/temper_sha256.lua
 --   lib/temper_platform.lua
 -- @about Centralized routing control surface for REAPER
 
