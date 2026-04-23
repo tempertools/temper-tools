@@ -9,6 +9,7 @@
 --   lib/temper_activation_dialog.lua
 --   lib/temper_sha256.lua
 --   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_platform.lua
 -- @about Batch multichannel audio format conversion tool
 
 local R = reaper

@@ -12,6 +12,7 @@
 --   [nomain] lib/temper_import.lua
 --   [nomain] lib/temper_pp_apply.lua
 --   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_pp_descriptors.lua
 -- @about
 --   Vortex is a layer-based random audio asset importer for REAPER.
 --

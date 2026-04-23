@@ -10,6 +10,7 @@
 --   [nomain] lib/temper_activation_dialog.lua
 --   [nomain] lib/temper_sha256.lua
 --   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_platform.lua
 -- @about
 --   Temper Mark scans folders of WAV files, detects transient boundaries via
 --   a multi-stage algorithm, previews results on a custom waveform display,

@@ -9,6 +9,7 @@
 --   [nomain] lib/temper_activation_dialog.lua
 --   [nomain] lib/temper_sha256.lua
 --   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_platform.lua
 -- @about
 --   Temper Slice Mini converts stereo WAV files to mono via drag-and-drop.
 --   Drop files from your OS file browser, choose a channel extraction mode

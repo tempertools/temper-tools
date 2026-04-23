@@ -12,6 +12,7 @@
 --   [nomain] lib/temper_import.lua
 --   [nomain] lib/temper_pp_apply.lua
 --   [nomain] lib/temper_actions.lua
+--   [nomain] lib/temper_pp_descriptors.lua
 -- @about
 --   Temper Vortex Mini is a lightweight companion to Temper Vortex for single-item
 --   ad hoc workflows. Select any item, launch Mini, and roll variations on
