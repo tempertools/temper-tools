@@ -1,5 +1,5 @@
 -- @description Temper Alloy -- WAV Variant Merger
--- @version 1.2.5
+-- @version 1.2.6
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Alloy.lua
@@ -563,25 +563,25 @@ local function render_title_bar(ctx, state, lic, lic_status)
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, SC.PRIMARY, "TEMPER - ALLOY")
   if font_b then R.ImGui_PopFont(ctx) end
 
-  -- Gear button (right-aligned, opens settings popup).
-  -- Widen the clip rect to cover the full title bar before drawing. The
-  -- default ImGui clip rect starts at win_y + WindowPadding.y, which on
-  -- macOS is wider than on Windows, so a button at win_y + 3 (inside the
-  -- padding zone) gets clipped. PushClipRect with intersect=false overrides
-  -- that and lets the button render in the title-bar strip cross-platform.
+  -- Gear button: hand-drawn via DrawList + InvisibleButton. Avoids the
+  -- U+2699 glyph dependency (absent from macOS's default ImGui font) and
+  -- the WindowPadding.y clip issue in one shot. PushClipRect widens the
+  -- clip rect over the title bar strip so the draw calls aren't culled.
   local btn_w = 22
+  local bx, by = win_x + win_w - btn_w - 8, win_y + 3
   R.ImGui_PushClipRect(ctx, win_x, win_y, win_x + win_w, win_y + h, false)
-  R.ImGui_SetCursorScreenPos(ctx, win_x + win_w - btn_w - 8, win_y + 3)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC.TITLE_BAR)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC.PANEL)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  SC.ACTIVE_DARK)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Text(),          SC.PRIMARY)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_alloy", btn_w, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup_alloy")
+  R.ImGui_SetCursorScreenPos(ctx, bx, by)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_alloy", btn_w, btn_w)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + btn_w, by + btn_w, SC.PANEL)
   end
-  R.ImGui_PopStyleColor(ctx, 4)
+  local cx, cy = bx + btn_w * 0.5, by + btn_w * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 7, SC.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.5, SC.PRIMARY, 12)
   R.ImGui_PopClipRect(ctx)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup_alloy") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
 
   -- Advance cursor past title bar
