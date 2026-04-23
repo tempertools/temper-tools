@@ -362,9 +362,13 @@ local function _pp_apply_to_item(snapshot, item, track_guid)
     -- REAPER's state-chunk parser does not tolerate — resulting in the source
     -- appearing to lose its FX entirely.
     local skip = false
-    if snapshot.source_item_guid then
+    if snapshot.source_item_guids or snapshot.source_item_guid then
       local _, target_guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
-      if target_guid == snapshot.source_item_guid then skip = true end
+      if snapshot.source_item_guids and snapshot.source_item_guids[target_guid] then
+        skip = true
+      elseif target_guid == snapshot.source_item_guid then
+        skip = true
+      end
     end
     if not skip then
       _pp_apply_takefx(item, take_idx, slot.fx_chunk)

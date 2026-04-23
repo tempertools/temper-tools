@@ -1,5 +1,5 @@
 -- @description Temper Imprint -- Property Selection & Paste Properties
--- @version 1.3.10
+-- @version 1.4.0
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Imprint.lua
@@ -337,15 +337,11 @@ end
 -- Copy / Paste operations
 -- ============================================================
 
-local function _do_copy(state)
-  local count = reaper.CountSelectedMediaItems(0)
-  if count == 0 then return false end
-  local item = reaper.GetSelectedMediaItem(0, 0)
-  if not item or not reaper.ValidatePtr(item, "MediaItem*") then return false end
-
-  local item_track = reaper.GetMediaItem_Track(item)
-  local track_guid = item_track and reaper.GetTrackGUID(item_track) or "__default__"
-
+-- Capture a single item's properties into `snapshot.tracks[track_key]`.
+-- Extracted from _do_copy so the multi-item branch can reuse it. Returns
+-- the item's source length (D_LENGTH) and the item's GUID string, so the
+-- caller can aggregate source_length and build the source_item_guids set.
+local function _capture_one(item, snapshot, track_key)
   local take = reaper.GetActiveTake(item)
   local slot = { props = {}, fx_chunk = "" }
 
@@ -394,19 +390,64 @@ local function _do_copy(state)
     end
   end
 
-  -- Source item GUID — used at paste time to skip FX re-application on the
-  -- source item itself (prevents duplicate-FXID corruption that makes the
-  -- source appear to "lose" its FX when it's included in the paste selection).
-  local _, source_item_guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+  snapshot.tracks[track_key] = slot
 
-  -- Build snapshot in same format _pp.apply_to_item expects.
-  state.snapshot = {
-    tracks           = { ["__default__"] = slot },
-    enabled          = {},  -- will be built from checks at paste time
-    count            = 1,
-    source_length    = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
-    source_item_guid = source_item_guid ~= "" and source_item_guid or nil,
+  local _, item_guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+  if item_guid == "" then item_guid = nil end
+  return reaper.GetMediaItemInfo_Value(item, "D_LENGTH"), item_guid
+end
+
+local function _do_copy(state)
+  local count = reaper.CountSelectedMediaItems(0)
+  if count == 0 then return false end
+
+  local snapshot = {
+    tracks            = {},
+    enabled           = {},
+    count             = count,
+    source_length     = 0,
+    mode              = (count >= 2) and "per_track" or "broadcast",
+    source_item_guids = {},
+    source_item_guid  = nil,
   }
+
+  if count == 1 then
+    -- Broadcast path (byte-identical to v1.3.10).
+    local item = reaper.GetSelectedMediaItem(0, 0)
+    if not item or not reaper.ValidatePtr(item, "MediaItem*") then return false end
+    local d_length, item_guid = _capture_one(item, snapshot, "__default__")
+    snapshot.source_length   = d_length
+    snapshot.source_item_guid = item_guid
+    if item_guid then snapshot.source_item_guids[item_guid] = true end
+  else
+    -- Per-track path: one slot per unique source track, first-encountered
+    -- item per track wins (same-track duplicates silently dropped).
+    local seen_tracks = {}
+    local max_length = 0
+    for i = 0, count - 1 do
+      local item = reaper.GetSelectedMediaItem(0, i)
+      if item and reaper.ValidatePtr(item, "MediaItem*") then
+        local tr = reaper.GetMediaItem_Track(item)
+        local tguid = tr and reaper.GetTrackGUID(tr) or nil
+        if tguid and not seen_tracks[tguid] then
+          seen_tracks[tguid] = true
+          local d_length, item_guid = _capture_one(item, snapshot, tguid)
+          if d_length and d_length > max_length then max_length = d_length end
+          if item_guid then snapshot.source_item_guids[item_guid] = true end
+        end
+      end
+    end
+    snapshot.source_length = max_length
+    -- Degenerate case: user selected multiple items but all on the same
+    -- track (only one slot was captured). mode stays "per_track" so paste
+    -- only matches items on that one track — consistent with same-track
+    -- collision rule.
+    local any = false
+    for _ in pairs(snapshot.tracks) do any = true; break end
+    if not any then return false end
+  end
+
+  state.snapshot     = snapshot
   state.has_source   = true
   state.source_count = count
   state.copy_flash   = reaper.time_precise() + 1.2
@@ -427,10 +468,29 @@ local function _do_paste(state)
   reaper.Undo_BeginBlock()
   reaper.PreventUIRefresh(1)
 
-  for i = 0, count - 1 do
-    local item = reaper.GetSelectedMediaItem(0, i)
-    if item and reaper.ValidatePtr(item, "MediaItem*") then
-      _pp.apply_to_item(state.snapshot, item, "__default__")
+  local mode = state.snapshot.mode or "broadcast"
+  local applied = 0
+  if mode == "broadcast" then
+    for i = 0, count - 1 do
+      local item = reaper.GetSelectedMediaItem(0, i)
+      if item and reaper.ValidatePtr(item, "MediaItem*") then
+        _pp.apply_to_item(state.snapshot, item, "__default__")
+        applied = applied + 1
+      end
+    end
+  else
+    -- per_track: look up each target item's track GUID in the snapshot;
+    -- skip silently if no matching slot.
+    for i = 0, count - 1 do
+      local item = reaper.GetSelectedMediaItem(0, i)
+      if item and reaper.ValidatePtr(item, "MediaItem*") then
+        local tr = reaper.GetMediaItem_Track(item)
+        local tguid = tr and reaper.GetTrackGUID(tr) or nil
+        if tguid and state.snapshot.tracks[tguid] then
+          _pp.apply_to_item(state.snapshot, item, tguid)
+          applied = applied + 1
+        end
+      end
     end
   end
 
@@ -440,7 +500,7 @@ local function _do_paste(state)
 
   if reaper.JS_Window_SetFocus then reaper.JS_Window_SetFocus(reaper.GetMainHwnd()) end
   state.paste_flash = reaper.time_precise() + 1.2
-  return count
+  return applied
 end
 
 -- ============================================================
@@ -1146,7 +1206,12 @@ do
     local _tts_ok, _tts = pcall(dofile, _lib .. "temper_test_state.lua")
     if _tts_ok and type(_tts) == "table" and _tts.register and _tts.dump_to_file then
       _tts.register(_IMP_NS, function()
-        local s_count, t_count = -1, -1
+        -- Legacy LD-027 predicates (source/target) plus per-track multi-slot
+        -- predicates (t1_source/t1_target/t2_source/t2_target/...). Any item
+        -- carrying P_EXT:imprint_test_tag is counted; the tag string is used
+        -- verbatim as the field-name suffix, so "t1_source" becomes the key
+        -- "t1_source_vst_count". Unknown tags are ignored.
+        local counts = {}
         local n_tracks = reaper.CountTracks(0)
         for t = 0, n_tracks - 1 do
           local tr = reaper.GetTrack(0, t)
@@ -1154,19 +1219,33 @@ do
           for i = 0, n_items - 1 do
             local it = reaper.GetTrackMediaItem(tr, i)
             local _, tag = reaper.GetSetMediaItemInfo_String(it, "P_EXT:imprint_test_tag", "", false)
-            if tag == "source" or tag == "target" then
+            if tag and tag ~= "" then
               local _, chunk = reaper.GetItemStateChunk(it, "", false)
               local _, n = chunk:gsub("<VST ", "<VST ")
-              if tag == "source" then s_count = n else t_count = n end
+              counts[tag] = (counts[tag] or 0) + n
             end
           end
         end
-        return {
+        local out = {
           has_snapshot       = state.snapshot ~= nil,
-          source_vst_count   = s_count,
-          target_vst_count   = t_count,
+          snapshot_mode      = state.snapshot and state.snapshot.mode or nil,
           source_guid_stored = state.snapshot and state.snapshot.source_item_guid or nil,
+          source_vst_count   = counts["source"] ~= nil and counts["source"] or -1,
+          target_vst_count   = counts["target"] ~= nil and counts["target"] or -1,
         }
+        -- Expose every observed tag as <tag>_vst_count, so scenarios can
+        -- author predicates like path="t1_vst_count".
+        for tag, n in pairs(counts) do
+          out[tag .. "_vst_count"] = n
+        end
+        if state.snapshot and state.snapshot.tracks then
+          local tk = 0
+          for _ in pairs(state.snapshot.tracks) do tk = tk + 1 end
+          out.snapshot_track_count = tk
+        else
+          out.snapshot_track_count = 0
+        end
+        return out
       end)
       HANDLERS._harness_dump = function() _tts.dump_to_file() end
     end
