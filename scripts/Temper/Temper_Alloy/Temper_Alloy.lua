@@ -1,5 +1,5 @@
 -- @description Temper Alloy -- WAV Variant Merger
--- @version 1.2.3
+-- @version 1.2.4
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Alloy.lua
@@ -563,9 +563,13 @@ local function render_title_bar(ctx, state, lic, lic_status)
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, SC.PRIMARY, "TEMPER - ALLOY")
   if font_b then R.ImGui_PopFont(ctx) end
 
-  -- Gear button (right-aligned, opens settings popup)
+  -- Gear button (right-aligned, opens settings popup).
+  -- Use GetWindowContentRegionMax (window-relative) instead of full win_w so
+  -- the button stays inside ImGui's clip rect on macOS, where right-edge
+  -- padding is wider than on Windows.
   local btn_w = 22
-  R.ImGui_SetCursorScreenPos(ctx, win_x + win_w - btn_w - 8, win_y + 3)
+  local cmax_x = R.ImGui_GetWindowContentRegionMax(ctx)
+  R.ImGui_SetCursorScreenPos(ctx, win_x + cmax_x - btn_w, win_y + 3)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC.TITLE_BAR)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC.PANEL)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  SC.ACTIVE_DARK)
