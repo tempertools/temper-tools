@@ -1,5 +1,5 @@
 -- @description Temper Vortex Mini -- Single-Item Layer Randomizer
--- @version 1.14.36
+-- @version 1.14.37
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex_Mini.lua

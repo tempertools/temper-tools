@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.11
+-- @version 1.3.12
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua

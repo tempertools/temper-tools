@@ -1,5 +1,5 @@
 -- @description Temper Imprint -- Property Selection & Paste Properties
--- @version 1.4.1
+-- @version 1.4.2
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Imprint.lua

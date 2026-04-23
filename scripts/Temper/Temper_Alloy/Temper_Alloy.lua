@@ -1,5 +1,5 @@
 -- @description Temper Alloy -- WAV Variant Merger
--- @version 1.2.6
+-- @version 1.2.7
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Alloy.lua

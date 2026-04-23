@@ -1,5 +1,5 @@
 -- @description Temper Nexus
--- @version 1.7.1
+-- @version 1.7.2
 -- v1.7.0: rsg_actions framework integration. 13 keyboard/macro-dispatchable
 --         commands (cycle_mode, copy, paste, toggle_pin, toggle_active_filter,
 --         5 filter chip toggles, 3 per-row property toggles for mute/phase/mono)

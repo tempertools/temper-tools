@@ -1,5 +1,5 @@
 -- @description Temper Mark -- Intelligent Take Marker Detection & Embedding
--- @version 1.4.4
+-- @version 1.4.5
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Mark.lua

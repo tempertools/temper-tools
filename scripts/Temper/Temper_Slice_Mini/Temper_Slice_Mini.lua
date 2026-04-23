@@ -1,5 +1,5 @@
 -- @description Temper Slice Mini -- Stereo to Mono WAV Converter
--- @version 1.1.4
+-- @version 1.1.5
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Slice_Mini.lua

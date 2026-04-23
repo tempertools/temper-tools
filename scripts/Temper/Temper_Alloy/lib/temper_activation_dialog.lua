@@ -1,5 +1,5 @@
 -- @description Temper — Activation Dialog (Design Engineer deliverable, RSG-61)
--- @version 1.2.0
+-- @version 1.2.1
 -- @author RSG Design Engineer
 -- @about
 --   Visual component for the Temper license activation dialog.
@@ -41,10 +41,11 @@ local C_RED  = temper_theme.TEXT_RED   -- error / expired
 local M = {}
 
 -- Internal state — reset by open()
-local _open         = false
-local _first_frame  = true
-local _input        = ""
-local _error_msg    = nil
+local _open              = false
+local _first_frame       = true
+local _needs_open_popup  = false  -- see comment on M.open
+local _input             = ""
+local _error_msg         = nil
 local _display_name = "Temper"
 local _buy_url_tip  = "tempertools.com"
 local _popup_id     = "Activate Temper##temper_lic"
@@ -64,13 +65,20 @@ function M.configure(opts)
 end
 
 -- Call once when the dialog should appear. Idempotent.
+-- NOTE: OpenPopup is intentionally NOT called here — callers typically
+-- invoke M.open from inside a settings popup button handler that then
+-- CloseCurrentPopup's the settings popup same-frame. OpenPopup at that
+-- ID-stack depth gets discarded when the parent popup closes, so
+-- BeginPopupModal at the main-window level next frame never sees the
+-- open request. Instead, M.draw calls OpenPopup on its first frame after
+-- _open flips true — by then the caller is at main-window scope.
 function M.open(ctx)
   if not _open then
-    _open        = true
-    _first_frame = true
-    _input       = ""
-    _error_msg   = nil
-    reaper.ImGui_OpenPopup(ctx, _popup_id)
+    _open             = true
+    _first_frame      = true
+    _needs_open_popup = true
+    _input            = ""
+    _error_msg        = nil
   end
 end
 
@@ -86,6 +94,14 @@ function M.draw(ctx, trial_days)
   if not _open then return nil end
 
   local R = reaper
+
+  -- Deferred OpenPopup (see M.open comment): emit here at the caller's
+  -- ID-stack depth — which is the main window, not a closing settings popup.
+  if _needs_open_popup then
+    R.ImGui_OpenPopup(ctx, _popup_id)
+    _needs_open_popup = false
+  end
+
   local trial_active = trial_days and trial_days > 0
 
   -- p_open controls the X close button:

@@ -1,5 +1,5 @@
 -- @description Temper Recall -- Rolling Audio Capture
--- @version 0.5.6
+-- @version 0.5.7
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Recall.lua

@@ -1,5 +1,5 @@
 -- @description Temper Vortex -- Multi-Track Layer Randomizer
--- @version 1.7.33
+-- @version 1.7.34
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex.lua
