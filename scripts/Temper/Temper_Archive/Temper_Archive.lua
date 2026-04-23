@@ -1,5 +1,5 @@
 -- @description Temper Archive -- Cross-platform project folder archival
--- @version 1.3.10
+-- @version 1.3.11
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Archive.lua
@@ -606,18 +606,23 @@ local function render_title_bar(ctx, state, lic, lic_status)
   if font_b then R.ImGui_PushFont(ctx, font_b, 13) end
   R.ImGui_DrawList_AddText(dl, wx + 12, wy + 7, COL.PRIMARY, "TEMPER - ARCHIVE")
   if font_b then R.ImGui_PopFont(ctx) end
-  -- Gear button (right-aligned in title bar, opens settings popup)
+  -- Gear button: DrawList primitives (font-free, OS-agnostic). PushClipRect
+  -- lets the button render inside WindowPadding.y on macOS.
   local gear_w = CONFIG.gear_btn_w
-  R.ImGui_SetCursorScreenPos(ctx, wx + ww - gear_w - 8, wy + 3)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        COL.TITLE_BAR)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), COL.PANEL)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  COL.ACTIVE_DARK)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Text(),          COL.PRIMARY)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_archive", gear_w, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup_archive")
+  local bx, by = wx + ww - gear_w - 8, wy + 3
+  R.ImGui_PushClipRect(ctx, wx, wy, wx + ww, wy + CONFIG.title_bar_h, false)
+  R.ImGui_SetCursorScreenPos(ctx, bx, by)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_archive", gear_w, gear_w)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + gear_w, by + gear_w, COL.PANEL)
   end
-  R.ImGui_PopStyleColor(ctx, 4)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  local cx, cy = bx + gear_w * 0.5, by + gear_w * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 7, COL.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.5, COL.PRIMARY, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup_archive") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
   -- Advance cursor past title bar (matching Alloy's SetCursorPosY pattern)
   R.ImGui_SetCursorPosY(ctx, CONFIG.title_bar_h + 8)

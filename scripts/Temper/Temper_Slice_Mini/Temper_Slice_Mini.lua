@@ -1,5 +1,5 @@
 -- @description Temper Slice Mini -- Stereo to Mono WAV Converter
--- @version 1.1.3
+-- @version 1.1.4
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Slice_Mini.lua
@@ -631,18 +631,23 @@ local function render_title_bar(ctx, state, lic, lic_status)
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, SC.PRIMARY, "TEMPER - SLICE MINI")
   if font_b then R.ImGui_PopFont(ctx) end
 
-  -- Gear button (right-aligned)
+  -- Gear button: DrawList primitives (font-free, OS-agnostic). PushClipRect
+  -- lets the button render inside WindowPadding.y on macOS.
   local btn_w = 22
-  R.ImGui_SetCursorScreenPos(ctx, win_x + win_w - btn_w - 8, win_y + 3)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC.TITLE_BAR)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC.PANEL)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  SC.ACTIVE_DARK)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Text(),          SC.PRIMARY)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_slice", btn_w, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup_slice")
+  local bx, by = win_x + win_w - btn_w - 8, win_y + 3
+  R.ImGui_PushClipRect(ctx, win_x, win_y, win_x + win_w, win_y + h, false)
+  R.ImGui_SetCursorScreenPos(ctx, bx, by)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_slice_mini", btn_w, btn_w)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + btn_w, by + btn_w, SC.PANEL)
   end
-  R.ImGui_PopStyleColor(ctx, 4)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  local cx, cy = bx + btn_w * 0.5, by + btn_w * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 7, SC.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.5, SC.PRIMARY, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup_slice") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
 
   -- Advance cursor past title bar

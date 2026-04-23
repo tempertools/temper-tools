@@ -1,5 +1,5 @@
 -- @description Temper Imprint -- Property Selection & Paste Properties
--- @version 1.4.0
+-- @version 1.4.1
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Imprint.lua
@@ -585,17 +585,23 @@ local function render_title_bar(ctx, state, lic, lic_status)
   end
   R.ImGui_PopStyleColor(ctx, 1)
 
-  -- Settings gear (right-aligned)
+  -- Settings gear: DrawList primitives (font-free, OS-agnostic)
   R.ImGui_SameLine(ctx)
   R.ImGui_SetCursorPosX(ctx, w - btn_w - 8)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC.PANEL)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC.HOVER_LIST)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  SC.ACTIVE_DARK)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_imp", btn_w, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup_imp")
+  local bx, by = R.ImGui_GetCursorScreenPos(ctx)
+  local dl = R.ImGui_GetWindowDrawList(ctx)
+  R.ImGui_PushClipRect(ctx, bx, by, bx + btn_w, by + btn_w, false)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_imp", btn_w, btn_w)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + btn_w, by + btn_w, SC.HOVER_LIST)
   end
-  R.ImGui_PopStyleColor(ctx, 3)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  local cx, cy = bx + btn_w * 0.5, by + btn_w * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 7, SC.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.5, SC.PRIMARY, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup_imp") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
 end
 

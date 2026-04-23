@@ -1,5 +1,5 @@
 -- @description Temper Mark -- Intelligent Take Marker Detection & Embedding
--- @version 1.4.3
+-- @version 1.4.4
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Mark.lua
@@ -482,18 +482,25 @@ local function render_title_bar(ctx, w, state, lic, lic_status)
   R.ImGui_DrawList_AddText(dl, win_x + 10, win_y + 8, title_color, "TEMPER - MARK")
   if font_b then R.ImGui_PopFont(ctx) end
 
-  -- Settings gear button (right-aligned)
+  -- Settings gear: DrawList primitives (font-free, OS-agnostic). PushClipRect
+  -- lets the button render inside WindowPadding.y on macOS.
   local btn_w = 22
-  R.ImGui_SetCursorScreenPos(ctx, win_x + win_w - btn_w - 8, win_y + 3)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC and SC.TITLE_BAR or 0x1A1A1CFF)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC and SC.PANEL or 0x1E1E20FF)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  SC and SC.ACTIVE_DARK or 0x141416FF)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Text(),          SC and SC.PRIMARY or 0x26A69AFF)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_mark", btn_w, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup_mark")
+  local bx, by = win_x + win_w - btn_w - 8, win_y + 3
+  local panel_col   = SC and SC.PANEL   or 0x1E1E20FF
+  local primary_col = SC and SC.PRIMARY or 0x26A69AFF
+  R.ImGui_PushClipRect(ctx, win_x, win_y, win_x + win_w, win_y + h, false)
+  R.ImGui_SetCursorScreenPos(ctx, bx, by)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_mark", btn_w, btn_w)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + btn_w, by + btn_w, panel_col)
   end
-  R.ImGui_PopStyleColor(ctx, 4)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  local cx, cy = bx + btn_w * 0.5, by + btn_w * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 7, primary_col, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.5, primary_col, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup_mark") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
 
   -- Advance cursor: title bar bottom + 8px gap

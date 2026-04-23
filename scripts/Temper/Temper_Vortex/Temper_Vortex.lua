@@ -1,5 +1,5 @@
 -- @description Temper Vortex -- Multi-Track Layer Randomizer
--- @version 1.7.32
+-- @version 1.7.33
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex.lua
@@ -2296,17 +2296,23 @@ end
 -- Call after the last Row 2 widget (Variations) with SameLine already set.
 local function render_settings_button(ctx)
   local R   = reaper
+  local dl  = R.ImGui_GetWindowDrawList(ctx)
   local w   = R.ImGui_GetWindowWidth(ctx)
   local btn = 28
   R.ImGui_SetCursorPosX(ctx, w - btn - 8)
-  push_btn(ctx, SC.BTN_DARK, SC.BTN_DARK_HV, SC.BTN_DARK_AC)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings", btn, 0) then  -- ⚙ gear
-    R.ImGui_OpenPopup(ctx, "##settings_popup")
+  local bx, by = R.ImGui_GetCursorScreenPos(ctx)
+  R.ImGui_PushClipRect(ctx, bx, by, bx + btn, by + btn, false)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_legacy", btn, btn)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + btn, by + btn, SC.BTN_DARK_HV)
   end
-  R.ImGui_PopStyleColor(ctx, 3)
-  if R.ImGui_IsItemHovered(ctx) then
-    R.ImGui_SetTooltip(ctx, "Settings")
-  end
+  local cx, cy = bx + btn * 0.5, by + btn * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 8, SC.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.8, SC.PRIMARY, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
 end
 
 -- C14/C15/RSG-115: Settings popup — Rescan + Color Tracks + Activate (trial only).
@@ -3562,15 +3568,23 @@ local function render_gui(ctx, app)
   R.ImGui_Dummy(ctx, 0, 1)
   -- Inline anchor strip (chips + "+ Anchor") between title and gear
   render_group_strip_inline(ctx, app)
-  -- Gear button right-aligned on title bar
+  -- Gear button right-aligned on title bar (DrawList primitives, font-free)
   R.ImGui_SameLine(ctx)
-  push_btn(ctx, SC.PANEL, SC.HOVER_LIST, SC.ACTIVE_DARK)
   R.ImGui_SetCursorPosX(ctx, full_w - 30)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_v2", 22, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup")
+  local bx_g, by_g = R.ImGui_GetCursorScreenPos(ctx)
+  local gear_dl = R.ImGui_GetWindowDrawList(ctx)
+  R.ImGui_PushClipRect(ctx, bx_g, by_g, bx_g + 22, by_g + 22, false)
+  local clicked_g = R.ImGui_InvisibleButton(ctx, "##settings_v2", 22, 22)
+  local hovered_g = R.ImGui_IsItemHovered(ctx)
+  if hovered_g then
+    R.ImGui_DrawList_AddRectFilled(gear_dl, bx_g, by_g, bx_g + 22, by_g + 22, SC.HOVER_LIST)
   end
-  R.ImGui_PopStyleColor(ctx, 3)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  local cx_g, cy_g = bx_g + 11, by_g + 11
+  R.ImGui_DrawList_AddCircle(gear_dl, cx_g, cy_g, 7, SC.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(gear_dl, cx_g, cy_g, 2.5, SC.PRIMARY, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked_g then R.ImGui_OpenPopup(ctx, "##settings_popup") end
+  if hovered_g then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, app)
   R.ImGui_SetCursorPosY(ctx, R.ImGui_GetCursorPosY(ctx) + 8)
 

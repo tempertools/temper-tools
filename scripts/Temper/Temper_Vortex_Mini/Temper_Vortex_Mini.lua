@@ -1,5 +1,5 @@
 -- @description Temper Vortex Mini -- Single-Item Layer Randomizer
--- @version 1.14.35
+-- @version 1.14.36
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Vortex_Mini.lua
@@ -923,16 +923,23 @@ local function render_title_bar(ctx, state, lic, lic_status)
   R.ImGui_Text(ctx, "TEMPER - VORTEX MINI")
   R.ImGui_PopStyleColor(ctx, 1)
   if font_b then R.ImGui_PopFont(ctx) end
+  -- Gear button: DrawList primitives (font-free, OS-agnostic)
   R.ImGui_SameLine(ctx)
   R.ImGui_SetCursorPosX(ctx, w - btn_w - 8)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC.PANEL)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC.HOVER_LIST)
-  R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  0x141416FF)
-  if R.ImGui_Button(ctx, "\xe2\x9a\x99##settings_slim", btn_w, 0) then
-    R.ImGui_OpenPopup(ctx, "##settings_popup_slim")
+  local bx, by = R.ImGui_GetCursorScreenPos(ctx)
+  local dl = R.ImGui_GetWindowDrawList(ctx)
+  R.ImGui_PushClipRect(ctx, bx, by, bx + btn_w, by + btn_w, false)
+  local clicked = R.ImGui_InvisibleButton(ctx, "##settings_slim", btn_w, btn_w)
+  local hovered = R.ImGui_IsItemHovered(ctx)
+  if hovered then
+    R.ImGui_DrawList_AddRectFilled(dl, bx, by, bx + btn_w, by + btn_w, SC.HOVER_LIST)
   end
-  R.ImGui_PopStyleColor(ctx, 3)
-  if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
+  local cx, cy = bx + btn_w * 0.5, by + btn_w * 0.5
+  R.ImGui_DrawList_AddCircle(dl, cx, cy, 7, SC.PRIMARY, 16, 1.5)
+  R.ImGui_DrawList_AddCircleFilled(dl, cx, cy, 2.5, SC.PRIMARY, 12)
+  R.ImGui_PopClipRect(ctx)
+  if clicked then R.ImGui_OpenPopup(ctx, "##settings_popup_slim") end
+  if hovered then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
 end
 
