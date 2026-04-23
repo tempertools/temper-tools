@@ -1,5 +1,5 @@
 -- @description Temper Alloy -- WAV Variant Merger
--- @version 1.2.4
+-- @version 1.2.5
 -- @author Temper Tools
 -- @provides
 --   [main] Temper_Alloy.lua
@@ -564,12 +564,14 @@ local function render_title_bar(ctx, state, lic, lic_status)
   if font_b then R.ImGui_PopFont(ctx) end
 
   -- Gear button (right-aligned, opens settings popup).
-  -- Use GetWindowContentRegionMax (window-relative) instead of full win_w so
-  -- the button stays inside ImGui's clip rect on macOS, where right-edge
-  -- padding is wider than on Windows.
+  -- Widen the clip rect to cover the full title bar before drawing. The
+  -- default ImGui clip rect starts at win_y + WindowPadding.y, which on
+  -- macOS is wider than on Windows, so a button at win_y + 3 (inside the
+  -- padding zone) gets clipped. PushClipRect with intersect=false overrides
+  -- that and lets the button render in the title-bar strip cross-platform.
   local btn_w = 22
-  local cmax_x = R.ImGui_GetWindowContentRegionMax(ctx)
-  R.ImGui_SetCursorScreenPos(ctx, win_x + cmax_x - btn_w, win_y + 3)
+  R.ImGui_PushClipRect(ctx, win_x, win_y, win_x + win_w, win_y + h, false)
+  R.ImGui_SetCursorScreenPos(ctx, win_x + win_w - btn_w - 8, win_y + 3)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_Button(),        SC.TITLE_BAR)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonHovered(), SC.PANEL)
   R.ImGui_PushStyleColor(ctx, R.ImGui_Col_ButtonActive(),  SC.ACTIVE_DARK)
@@ -578,6 +580,7 @@ local function render_title_bar(ctx, state, lic, lic_status)
     R.ImGui_OpenPopup(ctx, "##settings_popup_alloy")
   end
   R.ImGui_PopStyleColor(ctx, 4)
+  R.ImGui_PopClipRect(ctx)
   if R.ImGui_IsItemHovered(ctx) then R.ImGui_SetTooltip(ctx, "Settings") end
   render_settings_popup(ctx, state, lic, lic_status)
 
