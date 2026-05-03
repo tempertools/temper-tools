@@ -20,6 +20,7 @@ See demos, documentation, and purchase options at
 - **Temper Imprint**: Capture and paste routing, FX chains, envelopes,
   and sends between tracks.
 - **Temper Nexus**: Edit sends, receives, hardware outs, and parent routing for selected tracks.
+- **Temper Recall**: Rolling capture of REAPER's master output, with cue detection and one-click print to disk.
 - **Temper Mark**: Transfer take markers onto the rendered WAV file.
 - **Temper Alloy**: Combine WAV variants into a single multichannel file.
 - **Temper Slice**: Bounce items to structured WAV files with embedded
