@@ -13,6 +13,9 @@ See demos, documentation, and purchase options at
 
 ## What's inside
 
+- **Temper Atlas**: Stateful, metadata-driven sound search across every
+  REAPER MediaDB you own. Audition without leaving the window, drag any
+  row (or many rows) straight into the arrange view.
 - **Temper Vortex**: Randomize and roll item properties across layered
   tracks, with inheritance and variation slots.
 - **Temper Vortex Mini**: The Vortex randomization engine, focused on a
