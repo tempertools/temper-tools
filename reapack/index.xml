@@ -7,7 +7,7 @@
   </metadata>
   <category name="Temper">
     <reapack name="Temper_Vortex.lua" type="script" desc="Temper Vortex -- Multi-Track Layer Randomizer">
-      <version name="1.7.36" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.7.36" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Vortex/Temper_Vortex.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/Temper_Vortex.lua</source>
         <source file="Temper_Vortex/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/lib/temper_actions.lua</source>
         <source file="Temper_Vortex/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex/lib/temper_activation_dialog.lua</source>
@@ -32,7 +32,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Vortex_Mini.lua" type="script" desc="Temper Vortex Mini -- Single-Item Layer Randomizer">
-      <version name="1.14.39" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.14.39" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Vortex_Mini/Temper_Vortex_Mini.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex_Mini/Temper_Vortex_Mini.lua</source>
         <source file="Temper_Vortex_Mini/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex_Mini/lib/temper_actions.lua</source>
         <source file="Temper_Vortex_Mini/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Vortex_Mini/lib/temper_activation_dialog.lua</source>
@@ -55,7 +55,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Imprint.lua" type="script" desc="Temper Imprint -- Property Selection &amp; Paste Properties">
-      <version name="1.4.4" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.4.4" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Imprint/Temper_Imprint.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Imprint/Temper_Imprint.lua</source>
         <source file="Temper_Imprint/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Imprint/lib/temper_actions.lua</source>
         <source file="Temper_Imprint/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Imprint/lib/temper_activation_dialog.lua</source>
@@ -76,7 +76,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Mark.lua" type="script" desc="Temper Mark -- Intelligent Take Marker Detection &amp; Embedding">
-      <version name="1.4.7" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.4.7" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Mark/Temper_Mark.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Mark/Temper_Mark.lua</source>
         <source file="Temper_Mark/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Mark/lib/temper_actions.lua</source>
         <source file="Temper_Mark/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Mark/lib/temper_activation_dialog.lua</source>
@@ -99,7 +99,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Alloy.lua" type="script" desc="Temper Alloy -- WAV Variant Merger">
-      <version name="1.2.9" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.2.9" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Alloy/Temper_Alloy.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/Temper_Alloy.lua</source>
         <source file="Temper_Alloy/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/lib/temper_actions.lua</source>
         <source file="Temper_Alloy/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Alloy/lib/temper_activation_dialog.lua</source>
@@ -119,7 +119,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Slice.lua" type="script" desc="Temper Slice -- Multichannel Audio Batch Converter">
-      <version name="3.2.8" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="3.2.8" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Slice/Temper_Slice.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/Temper_Slice.lua</source>
         <source file="Temper_Slice/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/lib/temper_actions.lua</source>
         <source file="Temper_Slice/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice/lib/temper_activation_dialog.lua</source>
@@ -137,7 +137,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Slice_Mini.lua" type="script" desc="Temper Slice Mini -- Stereo to Mono WAV Converter">
-      <version name="1.1.7" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.1.7" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Slice_Mini/Temper_Slice_Mini.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice_Mini/Temper_Slice_Mini.lua</source>
         <source file="Temper_Slice_Mini/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice_Mini/lib/temper_actions.lua</source>
         <source file="Temper_Slice_Mini/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Slice_Mini/lib/temper_activation_dialog.lua</source>
@@ -156,7 +156,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Archive.lua" type="script" desc="Temper Archive -- Cross-platform project folder archival">
-      <version name="1.3.14" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.3.14" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Archive/Temper_Archive.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Archive/Temper_Archive.lua</source>
         <source file="Temper_Archive/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Archive/lib/temper_actions.lua</source>
         <source file="Temper_Archive/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Archive/lib/temper_activation_dialog.lua</source>
@@ -175,7 +175,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Nexus.lua" type="script" desc="Temper Nexus">
-      <version name="1.7.4" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="1.7.4" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Nexus/Temper_Nexus.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Nexus/Temper_Nexus.lua</source>
         <source file="Temper_Nexus/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Nexus/lib/temper_actions.lua</source>
         <source file="Temper_Nexus/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Nexus/lib/temper_activation_dialog.lua</source>
@@ -203,7 +203,7 @@
       </version>
     </reapack>
     <reapack name="Temper_Recall.lua" type="script" desc="Temper Recall -- Rolling Audio Capture">
-      <version name="0.5.9" author="Temper Tools" time="2026-05-03T01:46:56Z">
+      <version name="0.5.9" author="Temper Tools" time="2026-05-06T07:19:03Z">
         <source file="Temper_Recall/Temper_Recall.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/Temper_Recall.lua</source>
         <source file="Temper_Recall/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/lib/temper_actions.lua</source>
         <source file="Temper_Recall/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/lib/temper_activation_dialog.lua</source>
@@ -221,6 +221,44 @@
         <source file="Temper_Recall/Actions/Temper_Recall_Toggle_Force_Mono.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/Actions/Temper_Recall_Toggle_Force_Mono.lua</source>
         <source file="Temper_Recall/Actions/Temper_Recall_Toggle_Window.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/Actions/Temper_Recall_Toggle_Window.lua</source>
         <source type="effect" file="Temper/Temper_Recall.jsfx">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Recall/Temper_Recall.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="Temper_Atlas.lua" type="script" desc="Temper Atlas · Stateful, metadata-driven sound search">
+      <version name="0.18.0" author="Temper Tools" time="2026-05-06T07:19:03Z">
+        <source file="Temper_Atlas/Temper_Atlas.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/Temper_Atlas.lua</source>
+        <source file="Temper_Atlas/lib/temper_actions.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_actions.lua</source>
+        <source file="Temper_Atlas/lib/temper_activation_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_activation_dialog.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_artwork.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_artwork.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_audition.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_audition.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_db_names.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_db_names.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_dblist.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_dblist.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_dbwrite.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_dbwrite.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_drag_state.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_drag_state.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_drop_dialog.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_drop_dialog.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_drop_overlay.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_drop_overlay.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_facet_cache.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_facet_cache.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_favorites.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_favorites.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_filter_dictionary.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_filter_dictionary.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_index.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_index.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_insert.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_insert.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_lexicon.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_lexicon.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_lexicon_data.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_lexicon_data.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_metadata.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_metadata.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_render.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_render.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_routing.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_routing.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_search.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_search.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_tabs.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_tabs.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_toast.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_toast.lua</source>
+        <source file="Temper_Atlas/lib/temper_atlas_waveform.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_atlas_waveform.lua</source>
+        <source file="Temper_Atlas/lib/temper_iXML_writer.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_iXML_writer.lua</source>
+        <source file="Temper_Atlas/lib/temper_input_history.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_input_history.lua</source>
+        <source file="Temper_Atlas/lib/temper_license.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_license.lua</source>
+        <source file="Temper_Atlas/lib/temper_mediadb.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_mediadb.lua</source>
+        <source file="Temper_Atlas/lib/temper_sha256.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_sha256.lua</source>
+        <source file="Temper_Atlas/lib/temper_theme.lua">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/lib/temper_theme.lua</source>
+        <source file="Temper_Atlas/Actions/Temper_Atlas_Focus_Search.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/Actions/Temper_Atlas_Focus_Search.lua</source>
+        <source file="Temper_Atlas/Actions/Temper_Atlas_Insert_At_Cursor.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/Actions/Temper_Atlas_Insert_At_Cursor.lua</source>
+        <source file="Temper_Atlas/Actions/Temper_Atlas_Toggle_Window.lua" main="main">https://raw.githubusercontent.com/tempertools/temper-tools/main/scripts/Temper/Temper_Atlas/Actions/Temper_Atlas_Toggle_Window.lua</source>
       </version>
     </reapack>
   </category>
