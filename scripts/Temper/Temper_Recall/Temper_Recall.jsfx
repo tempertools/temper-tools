@@ -45,11 +45,15 @@ ext_noinit = 1;
 DISP_RES = 2048;
 MAX_NCH = 16;
 // Spectral view: BINS log-spaced magnitude slots per disp_px column. FFT_SIZE
-// is the window length fed to fft_real; 1024 @ 48k ≈ 21.3ms per analysis frame,
-// giving cleaner frequency resolution with negligible temporal cost versus a
-// typical disp_px slot (≥ 20ms at 60s / 2048 slots @ 48k).
-BINS = 96;
-FFT_SIZE = 1024;
+// is the window length fed to fft_real; 4096 @ 48k ≈ 85.3ms per analysis frame.
+// Bumped from 1024 -> 4096 (v0.5.13) for ~4x finer pitch resolution -- the
+// previous 46.875 Hz fft_bin_width clamped the bottom 12 log-bins to a single
+// source bin, smearing 20-47 Hz into a uniform color block. At 4096, fft_bin_width
+// drops to ~11.7 Hz so 20 Hz gets its own source bin and bass detail reads.
+// BINS bumped 96 -> 192 (v0.5.13) so cell_h halves on the Lua side, removing
+// the staircase artefact between adjacent bins.
+BINS = 192;
+FFT_SIZE = 4096;
 // Monotonic per-frame counter, never wraps. Feeds effective_nch staleness
 // detection: modular `counter` wraps at buf_len, so once a channel had
 // activity, age comparisons stayed bounded forever and effective_nch
@@ -143,11 +147,15 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
     hw_i += 1;
   );
 
-  // Log-spaced output bin → source bin ranges. 20 Hz to Nyquist, BINS steps.
+  // Log-spaced output bin → source bin ranges. 20 Hz to 16 kHz, BINS steps.
   // max-pool across [lo..hi] per output bin preserves narrow-band content
   // at low frequencies while giving high-band bins the width they need.
+  // Upper bound is capped well below Nyquist (was srate*0.5) so the visible
+  // strip is dominated by the musical band -- pinning the top at 16 kHz
+  // gives bass ~38% of the strip instead of ~25% when the air band above
+  // 8 kHz wasted real estate on near-empty content. (LD-2026-05-030.)
   log_f_lo = log(20);
-  log_f_hi = log(srate * 0.5);
+  log_f_hi = log(16000);
   log_step = (log_f_hi - log_f_lo) / BINS;
   fft_bin_width = srate / FFT_SIZE;
   log_bin_i = 0;
@@ -163,6 +171,16 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
     log_bin_hi_base[log_bin_i] = src_hi;
     log_bin_i += 1;
   );
+
+  // Topmost log_bin acts as a Nyquist catch-all (LD-2026-05-031): without
+  // this, signal energy in source bins above the labeled cap disappears
+  // entirely (e.g. a 16.5 kHz tone with cap=16000 fell in src bin 1408 but
+  // the highest log_bin only reached src bin 1361, so the tone was simply
+  // not rendered). Extending log_bin (BINS-1)'s src_hi to Nyquist-1 makes
+  // any content from the cap up to Nyquist max-pool into the top of the
+  // strip, giving a sensible "anything above the cap is at the top edge"
+  // semantic without disturbing the log-spaced pixel distribution below.
+  log_bin_hi_base[BINS - 1] = FFT_SIZE * 0.5 - 1;
 
   fft_write_pos = 0;
 
@@ -206,7 +224,7 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   // on startup and removes+reinstalls the JSFX on mismatch, so the user
   // never has to hand-Reload-JS after a version bump. Bump when the
   // Lua<->JSFX gmem contract changes.
-  gmem[10] = 23;
+  gmem[10] = 26;
 
   last_srate = srate;
   last_buf_dur = buf_dur;
