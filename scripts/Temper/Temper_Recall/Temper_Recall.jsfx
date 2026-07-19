@@ -1,5 +1,5 @@
 noindex: true
-version: 0.3.8
+version: 0.4.0
 author: Temper Tools
 desc: Temper Recall Capture Engine
 
@@ -84,6 +84,16 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   buf_dur = requested_buf_dur;
   nch = new_nch;
   buf_len = floor(buf_dur * srate) * nch;
+  // Local-memory ceiling guard (audit H13): the scratch layout below is
+  // anchored at 2*buf_len; at extreme configs (192kHz x 16ch x 60s ->
+  // 2*buf_len = 368M floats > maxmem) EEL2 out-of-range access degrades
+  // silently (blank spectrogram, wrong effective_nch, zeroed exports).
+  // Clamp buf_len frame-aligned so every region stays inside granted
+  // memory; the ring then covers fewer seconds than requested -- a
+  // visible-but-safe degradation instead of silent corruption.
+  max_buf_len = floor((__memtop() - 16384) / 2);
+  max_buf_len = floor(max_buf_len / nch) * nch;
+  buf_len > max_buf_len ? ( buf_len = max_buf_len; );
   counter = 0;
 
   gmem_ctrl = 20;
@@ -218,6 +228,14 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   // can't cause Lua to re-consume zeroed samples on reinit.
   gmem[14] = 0;
 
+  // Peak-slot accumulator (v0.4.0): peaks accumulate in this local and
+  // are written to gmem once per slot completion instead of a per-sample
+  // gmem read-modify-write.
+  slot_peak = 0;
+  // disp_buf_base is constant after this branch; broadcast it here once
+  // instead of on every @sample tick.
+  gmem[18] = disp_buf_base;
+
   gmem[16] = 1;
   gmem[19] = srate;
   // Protocol handshake: Lua compares gmem[10] against its expected version
@@ -251,6 +269,12 @@ loop(nch,
 );
 gmem[13] = effective_nch;
 
+// WRITE_HEAD broadcast at block cadence (v0.4.0; was per-sample). Lua
+// samples it at ~30Hz and quantizes to ~29ms display slots, so block
+// granularity (~5ms) is invisible to it. Correct while paused too --
+// counter is frozen, so the broadcast repeats the same value.
+buf_len > 0 ? ( gmem[17] = counter / buf_len; );
+
 @sample
 pause_state = gmem[9];
 lock_writehead == 0 && pause_state != 1 ? (
@@ -271,6 +295,10 @@ lock_writehead == 0 && pause_state != 1 ? (
     i += 1;
   );
 
+  // Slot position of the frame just written (pre-increment counter --
+  // preserves the exact slot-boundary timing of the old per-sample
+  // counter_norm, which lagged by one sample).
+  cn = counter / buf_len;
   counter += nch;
   counter >= buf_len ? ( counter = 0; );
   total_frames += 1;
@@ -278,10 +306,13 @@ lock_writehead == 0 && pause_state != 1 ? (
   // Display buffer update -- fixed DISP_RES slots, independent of window.
   // Peak is max-abs across all input channels for this frame so a
   // multichannel-only signal still drives the visible waveform.
+  // v0.4.0: peaks accumulate in the local slot_peak and hit gmem once per
+  // slot completion; WRITE_HEAD/DISP_BUF_OFFSET broadcasts moved to
+  // @block / reinit. Cuts audio-thread shared-memory traffic from
+  // ~150k accesses/sec to ~2k/sec with observationally identical reads
+  // on the Lua side (it only ever renders completed slots at ~30Hz).
   disp_buf_size = DISP_RES;
   disp_buf_size > 0 ? (
-    gmem[18] = disp_buf_base;
-
     disp_val = 0;
     fft_in_sum = 0;
     j = 0;
@@ -298,13 +329,17 @@ lock_writehead == 0 && pause_state != 1 ? (
     // nch gives per-channel equivalent level (2026-04-20).
     nch > 0 ? fft_in_sum = fft_in_sum / nch;
 
-    disp_px = floor(counter_norm * disp_buf_size);
+    disp_px = floor(cn * disp_buf_size);
     disp_px >= disp_buf_size ? ( disp_px = disp_buf_size - 1; );
 
-    // New pixel crossed? Reset peak, clear the spec slot's BINS so a new
-    // timescale sweep doesn't leave stale bins at the leading edge.
+    // New pixel crossed? Finalize the completed slot's peak with a single
+    // gmem write (guarded: last_disp_px is -1 after reinit and must never
+    // index gmem[disp_buf_base - 1], the reserved anchor slot 20), then
+    // clear the new spec slot's BINS so a new timescale sweep doesn't
+    // leave stale bins at the leading edge.
     disp_px != last_disp_px ? (
-      gmem[disp_buf_base + disp_px] = 0;
+      last_disp_px >= 0 ? ( gmem[disp_buf_base + last_disp_px] = slot_peak; );
+      slot_peak = 0;
       spec_clr_i = 0;
       loop(BINS,
         gmem[spec_buf_base + disp_px * BINS + spec_clr_i] = 0;
@@ -313,11 +348,8 @@ lock_writehead == 0 && pause_state != 1 ? (
       last_disp_px = disp_px;
     );
 
-    // Update peak
-    cur_peak = gmem[disp_buf_base + disp_px];
-    disp_val > cur_peak ? (
-      gmem[disp_buf_base + disp_px] = disp_val;
-    );
+    // Update peak (local accumulator; gmem write deferred to completion)
+    disp_val > slot_peak ? ( slot_peak = disp_val; );
 
     // Feed spectral window. Sum-across-channels matches how disp_val
     // treats multichannel signal so both views respond together.
@@ -389,13 +421,12 @@ lock_writehead == 0 && pause_state != 1 ? (
   );
 );
 
-counter_norm = counter / buf_len;
-gmem[17] = counter_norm;
-
 @gfx 1 1
 
 function wmod(num, mod) (
-  num < 0 ? mod - ((num * -1) % mod) : num % mod;
+  // Outer % keeps a negative exact multiple at 0, not `mod` (audit H14 --
+  // one-past-end; previously masked by downstream re-wrapping).
+  num < 0 ? (mod - ((num * -1) % mod)) % mod : num % mod;
 );
 
 function sample_buf(start_idx, num_frames)
