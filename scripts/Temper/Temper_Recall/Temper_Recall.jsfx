@@ -1,5 +1,5 @@
 noindex: true
-version: 0.4.0
+version: 0.5.1
 author: Temper Tools
 desc: Temper Recall Capture Engine
 
@@ -62,7 +62,11 @@ total_frames = 0;
 
 @block
 requested_buf_dur = gmem[4];
-requested_buf_dur < 10 ? ( requested_buf_dur = 60; );
+// Pristine/undersized gmem[4] (0 on a cold REAPER boot before the Lua UI
+// has written it): fall back to the last good value when one exists so a
+// mid-session re-read can never force a spurious rescale reinit pair;
+// only a genuinely fresh instance takes the 60s default.
+requested_buf_dur < 10 ? ( requested_buf_dur = last_buf_dur >= 10 ? last_buf_dur : 60; );
 
 // Capture nch is Lua-driven (gmem[12] = master.I_NCHAN, written each frame).
 // num_ch on Monitor FX reflects the declared in_pin count (16), not the
@@ -95,6 +99,13 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   max_buf_len = floor(max_buf_len / nch) * nch;
   buf_len > max_buf_len ? ( buf_len = max_buf_len; );
   counter = 0;
+  // Validity fence (v27): floats written into buf_pos since this reinit,
+  // capped at buf_len. buf_pos is deliberately NOT cleared here (a full
+  // clear inside @block would stall the audio thread for multi-megafloat
+  // rings); instead sample_buf() reads addresses >= ring_valid as exact
+  // silence, so exports can never surface pre-reinit orphans or
+  // never-written memory as audio.
+  ring_valid = 0;
 
   gmem_ctrl = 20;
   disp_buf_base = gmem_ctrl + 1;
@@ -216,6 +227,15 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   span_slots < 1 ? span_slots = 1;
   span_slots > DISP_RES ? span_slots = DISP_RES;
   EXPORT_BUF_SIZE = 7340032;  // 7M floats = ~28MB; ~9.5s @ 16ch/48k
+  // EEL2 silently exits any single loop/while execution at ~2^20
+  // iterations. A one-shot while() over a long export therefore
+  // truncates at 1,048,576 floats -- 5.46s at 96k stereo -- leaving the
+  // tail of the staging buffer stale (V-5 2026-07-29/30 items 7+11;
+  // boundary measured live at exactly 2^20 by sentinel probe). Every
+  // staging loop in sample_buf() must chunk at or below this size; the
+  // cap resets per construct EXECUTION, so an outer loop() of chunked
+  // while() bodies stays in one @gfx tick.
+  EXPORT_COPY_CHUNK = 524288;  // 2^19, half the EEL2 loop cap
 
   // export_buf_base is mirrored in Lua as a hardcoded constant (see
   // EXPORT_BUF_BASE in Temper_Recall.lua). Earlier versions broadcast it via
@@ -242,7 +262,17 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   // on startup and removes+reinstalls the JSFX on mismatch, so the user
   // never has to hand-Reload-JS after a version bump. Bump when the
   // Lua<->JSFX gmem contract changes.
-  gmem[10] = 26;
+  gmem[10] = 28;
+
+  // Reinit generation (v27): monotonic per-instance counter bumped on
+  // every pass through this branch. A full FX reload restarts it, which
+  // still reads as a delta on the Lua side. Lua treats ANY change as
+  // "ring geometry/content replaced" and deterministically flushes its
+  // mirrors and drops ring-anchored state (selections, queued exports).
+  // This replaces the coincidental >DISP_RES/2 head-jump heuristic as
+  // the primary reinit signal (V-5 2026-07-29 items 7+11 root cause).
+  reinit_gen += 1;
+  gmem[8] = reinit_gen;
 
   last_srate = srate;
   last_buf_dur = buf_dur;
@@ -301,6 +331,9 @@ lock_writehead == 0 && pause_state != 1 ? (
   cn = counter / buf_len;
   counter += nch;
   counter >= buf_len ? ( counter = 0; );
+  // Advance the validity fence with the write head until the first
+  // post-reinit wrap; from then on the whole ring is genuine audio.
+  ring_valid < buf_len ? ( ring_valid += nch; );
   total_frames += 1;
 
   // Display buffer update -- fixed DISP_RES slots, independent of window.
@@ -430,7 +463,7 @@ function wmod(num, mod) (
 );
 
 function sample_buf(start_idx, num_frames)
-  local(temp_buf, i, j, x, sum, force_mono, out_nch, total, cpy_i) (
+  local(temp_buf, i, j, x, sum, force_mono, out_nch, total, cpy_i, i_end, cpy_end) (
   // Frame-align start index (multiple of nch). Belt-and-braces; callers
   // already align, but a stray off-by-one here would interleave channels.
   start_idx -= start_idx % nch;
@@ -449,41 +482,63 @@ function sample_buf(start_idx, num_frames)
 
   force_mono == 1 ? (
     // Mono fold: average all captured channels per frame into one sample.
+    // Chunked: see EXPORT_COPY_CHUNK -- a single while() execution caps
+    // at ~2^20 iterations and silently truncates long exports.
     i = 0;
-    while (i < num_frames) (
-      sum = 0;
-      j = 0;
-      loop(nch,
-        x = wmod(start_idx + i * nch + j, buf_len);
-        sum += buf_pos[x];
-        j += 1;
+    loop(16,
+      i_end = i + EXPORT_COPY_CHUNK;
+      i_end > num_frames ? ( i_end = num_frames; );
+      while (i < i_end) (
+        sum = 0;
+        j = 0;
+        loop(nch,
+          x = wmod(start_idx + i * nch + j, buf_len);
+          // Validity fence: never surface pre-reinit orphans or
+          // never-written memory as audio (v27).
+          sum += x < ring_valid ? buf_pos[x] : 0;
+          j += 1;
+        );
+        temp_buf[i] = sum / nch;
+        i += 1;
       );
-      temp_buf[i] = sum / nch;
-      i += 1;
     );
   ) : (
     // Pass through at the captured channel count. Interleaved layout
-    // matches the gmem read order on the Lua side.
+    // matches the gmem read order on the Lua side. Chunked: see
+    // EXPORT_COPY_CHUNK.
     i = 0;
-    while (i < num_frames) (
-      j = 0;
-      loop(nch,
-        x = wmod(start_idx + i * nch + j, buf_len);
-        temp_buf[i * nch + j] = buf_pos[x];
-        j += 1;
+    loop(16,
+      i_end = i + EXPORT_COPY_CHUNK;
+      i_end > num_frames ? ( i_end = num_frames; );
+      while (i < i_end) (
+        j = 0;
+        loop(nch,
+          x = wmod(start_idx + i * nch + j, buf_len);
+          // Validity fence: see mono branch above (v27).
+          temp_buf[i * nch + j] = x < ring_valid ? buf_pos[x] : 0;
+          j += 1;
+        );
+        i += 1;
       );
-      i += 1;
     );
   );
 
   // Copy interleaved samples into gmem so Lua can read and write a WAV
   // file at any channel count. This replaces export_buffer_to_project()
   // which was capped at 8 channels and silently failed above that.
+  // Chunked (see EXPORT_COPY_CHUNK): the un-chunked while() here was the
+  // V-5 items 7+11 truncation -- it stopped at exactly 2^20 floats and
+  // the item's tail became whatever the staging buffer held before.
+  // 16 chunks cover the EXPORT_BUF_SIZE worst case.
   total = num_frames * out_nch;
   cpy_i = 0;
-  while (cpy_i < total) (
-    gmem[export_buf_base + cpy_i] = temp_buf[cpy_i];
-    cpy_i += 1;
+  loop(16,
+    cpy_end = cpy_i + EXPORT_COPY_CHUNK;
+    cpy_end > total ? ( cpy_end = total; );
+    while (cpy_i < cpy_end) (
+      gmem[export_buf_base + cpy_i] = temp_buf[cpy_i];
+      cpy_i += 1;
+    );
   );
 
   // Metadata + ready flag. Lua polls EXPORT_READY (slot 14) each defer
