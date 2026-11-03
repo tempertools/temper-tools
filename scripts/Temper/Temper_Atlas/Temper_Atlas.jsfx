@@ -1,0 +1,289 @@
+noindex: true
+version: 0.60.0
+author: Temper Tools
+desc:Temper Atlas Audition Engine
+// Temper Atlas's audition player: a varispeed engine reading an interleaved
+// stereo sample ring that the Atlas Lua side fills over gmem. Lives on the
+// master Monitor FX chain (index 0, ahead of Temper Recall so Recall
+// captures auditions). ADDS its output to the chain's audio.
+//
+// Why: no CF_Preview parameter can change speed without an audible re-plan
+// (dead-ends rounds 6-9). Here the rate is slewed per SAMPLE in the log2
+// domain (15 ms time constant), the ring is read with a windowed-sinc
+// interpolator whose kernel widens above 1x so speed-up does not alias,
+// and seeks / loop wraps are 15 ms equal-power crossfades between two heads.
+//
+// gmem protocol -- LOCKSTEP with temper_atlas_audition_engine.lua M.GM.
+// Change a slot, the ring geometry or PROTO in both files, same commit.
+//   control (Lua -> JSFX)      readback (JSFX -> Lua)
+//    0 PLAY_SERIAL              32 PROTO (=2, written in @init)
+//    1 STOP (1 = fade out)      33 SRATE (device)
+//    2 SEEK_SERIAL              34 BLOCKS (proof of life)
+//    3 SEEK_POS (source s)      35 READ_POS (source s, active head)
+//    4 RATE_TARGET              36 RATE_LIVE
+//    5 VOLUME                   37 PLAYING
+//    6 LOOP_ON                  38 UNDERRUNS
+//    7 LOOP_START (s)           39 PLAY_ACK
+//    8 LOOP_END (s; <=0 = end)  40 SEEK_ACK
+//    9 SRC_LEN_SEC              41 ENDED
+//   10 SRC_SRATE                42 OUT_PEAK
+//   13 WIN_TAIL (abs frame)     ring: base 4096, 2^21 frames, 2 channels
+//   14 WIN_HEAD (abs frame, excl)      slot = 4096 + (frame & (2^21-1))*2 + ch
+//   15 LUA_BEAT (+1 per Lua frame; 0.5 s silence => stop)
+//   16 WIN2_TAIL / 17 WIN2_HEAD  second valid ring window: the far seek /
+//      re-play target while the old window retires; 0/0 when unused
+//   18 DEBUG_SPAN_CAP (probes only: 1 forces kernel span 1 above 1x)
+//   19 LOOP_TAIL / 20 LOOP_HEAD  loop-start buffer window (abs frames) held
+//      OUTSIDE the ring at LOOP_BASE = 4096 + 2^21*2 = 4198400,
+//      slot = LOOP_BASE + (frame - LOOP_TAIL)*2 + ch; 0/0 when unused
+//   debug readback: 43 MISS_FRAME 44 MISS_TAIL 45 MISS_HEAD (last ring miss),
+//      46 CPU_RATIO (max block time / block duration), 47 STEP_LIVE,
+//      54 MISS_W2T 55 MISS_W2H 56 MISS_ISB (0 A / 1 B) 57 MISS_XF
+// Rules: STOP is honoured before PLAY_SERIAL in the same block; a PLAY
+// while playing is a crossfade, not a cut. No exponent literals (EEL2).
+
+options:gmem=Temper_Atlas
+
+in_pin:in 1
+in_pin:in 2
+out_pin:out 1
+out_pin:out 2
+
+@init
+ext_noinit = 1;               // transport start must not reset a running audition
+PROTO = 2;
+RING_BASE = 4096;
+RING_MASK = 2097151;          // 2^21 - 1
+LOOP_BASE = 4198400;          // RING_BASE + 2^21 * 2
+LOG2 = log(2);
+PI = $pi;
+
+// Windowed sinc table: half kernel, TAPS_HALF samples each side at 1x,
+// OVERSAMPLE points per sample, linear interpolation between points.
+TAPS_HALF  = 12;
+OVERSAMPLE = 128;
+TBL_LEN    = TAPS_HALF * OVERSAMPLE + 1;
+tbl = 0;                      // local memory [0, TBL_LEN)
+i = 0;
+loop(TBL_LEN,
+  t = i / OVERSAMPLE;                         // 0 .. TAPS_HALF
+  x = t / TAPS_HALF;                          // 0 .. 1 (window argument)
+  s = t == 0 ? 1 : sin(PI * t) / (PI * t);
+  w = 0.35875 + 0.48829 * cos(PI * x) + 0.14128 * cos(2 * PI * x) + 0.01168 * cos(3 * PI * x);
+  tbl[i] = s * w;
+  i += 1;
+);
+
+slew_k   = 1 - exp(-1 / (0.015 * srate));    // rate slew, log2 domain
+fade_inc = 1 / (0.005 * srate);              // 5 ms linear gain ramps
+XF_SEC   = 0.015;                            // seek / loop crossfade length
+xf_inc   = 1 / (XF_SEC * srate);
+
+headA = 0; headB = 0; xfade = -1;
+gain = 0; gain_target = 0; dgain = 1;
+playing = 0; stopping = 0; ended = 0; ended_pending = 0;
+lrate = 0; rate_target = 1;
+play_ack = 0; seek_ack = 0; beat_last = -1; beat_age = 0;
+underruns = 0; miss_prev = 0; blocks = 0; out_peak = 0;
+miss_frame = -1; miss_tail = 0; miss_head = 0; cpu_max = 0; span_cap = 0; step = 1;
+miss_w2t = 0; miss_w2h = 0; miss_isB = -1; miss_xf = -2; reading_b = 0;
+src_sr = srate; src_len = 0; win_tail = 0; win_head = 0; win2_tail = 0; win2_head = 0;
+loop_tail = 0; loop_head = 0;
+loop_on = 0; loop_start = 0; loop_end = 0; volume = 1;
+
+function start_xfade(pos) (
+  headB = pos;
+  xfade = 0;
+);
+
+// Interpolated read of channel ch at fractional frame h. Kernel span widens
+// with the read step (anti-aliasing above 1x). A MISS (miss=1, returns 0)
+// is the CENTER frame lying outside all three windows; kernel taps that
+// fall outside the windows read as zero, so a start, seek or loop start
+// right at a window edge is a slight ripple, not a dropout. A frame inside
+// the loop-start window reads the loop buffer (outside the ring, no
+// modulo); the same frame may also sit in the ring with the same data.
+// `lenient` = 1 for the OUTGOING head of a crossfade: outside the windows
+// it reads silence without flagging a miss (its gain is on the way to 0).
+function read_ring(h, ch, span, lenient) local(fi, frac, half, n, t, ti, tf, w, acc, f, lo1, hi1, lo2, hi2, lo3, hi3, src) (
+  fi = floor(h);
+  frac = h - fi;
+  half = ceil(TAPS_HALF * span);
+  lo1 = win_tail; hi1 = win_head; lo2 = win2_tail; hi2 = win2_head; lo3 = loop_tail; hi3 = loop_head;
+  ((fi < lo1 || fi >= hi1) && (fi < lo2 || fi >= hi2) && (fi < lo3 || fi >= hi3)) ? (
+    lenient ? 0 : (
+      miss = 1;
+      miss_frame = fi; miss_tail = lo1; miss_head = hi1;
+      miss_w2t = lo2; miss_w2h = hi2; miss_isB = reading_b; miss_xf = xfade;
+      0;
+    );
+  ) : (
+    acc = 0;
+    n = -half + 1;
+    loop(2 * half,
+      f = fi + n;
+      src = (f >= lo3 && f < hi3) ? 2 : (((f >= lo1 && f < hi1) || (f >= lo2 && f < hi2)) ? 1 : 0);
+      src ? (
+        t = abs((n - frac) / span) * OVERSAMPLE;
+        ti = floor(t);
+        ti < TBL_LEN - 1 ? (
+          tf = t - ti;
+          w = tbl[ti] + (tbl[ti + 1] - tbl[ti]) * tf;
+          acc += w * (src == 2 ? gmem[LOOP_BASE + (f - lo3) * 2 + ch]
+                              : gmem[RING_BASE + (f & RING_MASK) * 2 + ch]);
+        );
+      );
+      n += 1;
+    );
+    acc / span;
+  );
+);
+
+gmem[32] = PROTO;
+gmem[33] = srate;
+
+@block
+blocks += 1;
+gmem[34] = blocks;
+t_blk = time_precise();
+ns_blk = 0;
+span_cap = gmem[18];
+
+rate_target = gmem[4]; rate_target <= 0 ? rate_target = 1;
+volume   = gmem[5];
+loop_on  = gmem[6];
+loop_start = gmem[7];
+loop_end = gmem[8];
+src_len  = gmem[9];
+src_sr   = gmem[10]; src_sr <= 0 ? src_sr = srate;
+win_tail = gmem[13];
+win_head = gmem[14];
+win2_tail = gmem[16];
+win2_head = gmem[17];
+loop_tail = gmem[19];
+loop_head = gmem[20];
+
+// Heartbeat: Lua bumps slot 15 every frame; half a second of silence means
+// the script died -- never leave sound running.
+beat = gmem[15];
+beat != beat_last ? (beat_last = beat; beat_age = 0;) : (beat_age += samplesblock);
+stop_req = 0;
+playing && beat_age > 0.5 * srate ? stop_req = 1;
+
+// STOP before PLAY.
+gmem[1] >= 0.5 ? (stop_req = 1; gmem[1] = 0;);
+stop_req ? (gain_target = 0; stopping = 1;);
+
+ps = gmem[0];
+ps != play_ack ? (
+  play_ack = ps;
+  gmem[39] = ps;
+  newpos = gmem[3] * src_sr;
+  playing ? start_xfade(newpos) : (headA = newpos; xfade = -1; gain = 0;);
+  playing = 1; stopping = 0; ended = 0; ended_pending = 0;
+  gain_target = 1;
+);
+
+ss = gmem[2];
+ss != seek_ack ? (
+  seek_ack = ss;
+  gmem[40] = ss;
+  newpos = gmem[3] * src_sr;
+  playing ? start_xfade(newpos) : (headA = newpos;);
+);
+
+gmem[35] = headA / src_sr;
+gmem[36] = 2 ^ lrate;
+gmem[37] = playing;
+gmem[38] = underruns;
+gmem[41] = ended;
+gmem[42] = out_peak;
+gmem[43] = miss_frame; gmem[44] = miss_tail; gmem[45] = miss_head;
+gmem[46] = cpu_max;
+gmem[47] = step;
+gmem[54] = miss_w2t; gmem[55] = miss_w2h; gmem[56] = miss_isB; gmem[57] = miss_xf;
+
+@sample
+// Per-block CPU ratio: time from this block's @block to its last sample.
+ns_blk += 1;
+ns_blk >= samplesblock ? (
+  cpu_r = (time_precise() - t_blk) / (samplesblock / srate);
+  cpu_r > cpu_max ? cpu_max = cpu_r;
+);
+lt = log(rate_target) / LOG2;
+lrate += (lt - lrate) * slew_k;
+rate = 2 ^ lrate;
+step = rate * src_sr / srate;
+span = step > 1 ? step : 1;
+span_cap >= 0.5 ? span = 1;
+
+playing ? (
+  gain < gain_target ? (gain += fade_inc; gain > gain_target ? gain = gain_target;)
+  : gain > gain_target ? (gain -= fade_inc; gain < gain_target ? gain = gain_target;);
+
+  miss = 0;
+  reading_b = 0;
+  outL = read_ring(headA, 0, span, xfade >= 0);
+  outR = read_ring(headA, 1, span, xfade >= 0);
+  xfade >= 0 ? (
+    reading_b = 1;
+    bL = read_ring(headB, 0, span, 0);
+    bR = read_ring(headB, 1, span, 0);
+    // Equal-power crossfade whose angle follows a smoothstep: zero slope at
+    // both ends, so the fade starts and ends without a derivative kink
+    // (the plain quarter-wave leaves ~5 % more HF splatter on a seek).
+    th = xfade * xfade * (3 - 2 * xfade) * PI * 0.5;
+    a = cos(th);
+    b = sin(th);
+    outL = outL * a + bL * b;
+    outR = outR * a + bR * b;
+    xfade += xf_inc;
+    headB += step;
+    // Hand over so the next sample reads B's position + one step (the
+    // common `headA += step` below runs for the new A too).
+    xfade >= 1 ? (headA = headB - step; xfade = -1;);
+  );
+  headA += step;
+
+  // Ring miss: fade to silence, count once per episode, resume with a fade.
+  miss ? (
+    miss_prev == 0 ? underruns += 1;
+    dgain -= fade_inc; dgain < 0 ? dgain = 0;
+  ) : (
+    dgain += fade_inc; dgain > 1 ? dgain = 1;
+  );
+  miss_prev = miss;
+
+  // Loop wrap / natural end. At the loop end the incoming head starts at
+  // the loop start (seamless for phase-continuous material) while the
+  // outgoing head keeps reading past the end through the crossfade; past
+  // the valid window (EOF on a whole-file loop) it reads silence, which is
+  // a soft fade, not a miss (read_ring's lenient mode).
+  // At EOF there is nothing past the end for the outgoing head to fade over,
+  // so a whole-file wrap crossfades its last XF_SEC into the loop start
+  // instead (the classic overlap loop; the outgoing head never reads EOF
+  // at full gain).
+  lend = loop_end > 0 ? loop_end * src_sr : src_len * src_sr;
+  loop_on >= 0.5 ? (
+    lstart_f = loop_start * src_sr;
+    xf_at = lend;
+    lend >= src_len * src_sr - 1 ? (
+      xf_at = lend - step * XF_SEC * srate;
+      xf_at < lstart_f ? xf_at = lend;
+    );
+    headA >= xf_at && xfade < 0 ? start_xfade(lstart_f + (headA - xf_at));
+  ) : (
+    headA >= src_len * src_sr && stopping == 0 ? (gain_target = 0; stopping = 1; ended_pending = 1;);
+  );
+
+  stopping && gain <= 0 ? (
+    playing = 0; stopping = 0;
+    ended_pending ? (ended = 1; ended_pending = 0;);
+  );
+
+  o = gain * dgain * volume;
+  spl0 += outL * o;
+  spl1 += outR * o;
+  pk = abs(outL * o);
+  pk > out_peak ? out_peak = pk;
+);
