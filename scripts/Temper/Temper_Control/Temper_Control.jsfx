@@ -1,0 +1,637 @@
+noindex: true
+version: 0.2.0
+author: Temper Tools
+desc:Temper Control Hub
+// Temper Control hub. One instance per FX chain. Each destination parameter's
+// native Parameter Modulation link points at one of the slot `out` sliders
+// below; the hub computes macros, LFOs, envelope followers and the 12 slot
+// outputs once per audio block. Its entire state is its sliders (saved,
+// undone, duplicated and automated natively); the Lua side never runs in the
+// audio path. Audio passes through unchanged (the followers only listen).
+//
+// The slider layout is the CTRL1 schema and is APPEND-ONLY once shipped.
+// scripts/lua/lib/temper_control_layout.lua generates the slider block below
+// (scripts/lua/tools/gen_control_sliders.lua) and
+// tests/lua/test_control_jsfx_layout.lua enforces byte parity, the base
+// offsets below and div_tab against the layout and the engine.
+//
+// Engine twin (scripts/lua/lib/temper_control_engine.lua, transcribed
+// literally; tests/probes/control/probe_parity.lua compares the two live):
+// curves (crv), connection and slot maths, the hash (hash01), slew / smoothing
+// (smooth_step), the LFO shapes (lfo_shape) and the sync divisions (div_tab).
+// JSFX-only, no Lua twin: the envelope-follower detector (@sample), the LFO
+// phase sources (play_position / beat_position while playing, free-running
+// seconds while stopped), solo masking, and the first-block seeding of the
+// smoothing / held state from the saved sliders.
+//
+// Header slider 3 (`seed`, "global seed") is RESERVED: CTRL1 never reads it
+// (each LFO has its own lfo.n.seed). It exists so the slot stays append-only.
+//
+// Unreferenced LFO/follower units are skipped and their out sliders are left
+// as they are.
+//
+// Restart rule (0.2.0): restarts happen only while playing. A playing block
+// jumped on a stopped-to-playing edge (transport start, render start), a
+// backwards move (seek back, loop wrap) or a forward move of more than
+// max(0.5 s, 16 blocks) (seek ahead; playrate up to 4x stays under it). On a
+// jumped block the LFO and slot smoothing snap to their targets and the
+// followers restart from silence. The LFO phase reads the timeline only while
+// playing; stopped, it runs on the free counters, so a cursor click while
+// stopped never pops the preview. The first block after load is not a jump: it
+// keeps the seeding from the saved sliders. s_held (an inactive absolute A
+// holding its last contribution) is routing state and is kept.
+
+in_pin:in 1
+in_pin:in 2
+in_pin:in 3
+in_pin:in 4
+in_pin:in 5
+in_pin:in 6
+in_pin:in 7
+in_pin:in 8
+out_pin:out 1
+out_pin:out 2
+out_pin:out 3
+out_pin:out 4
+out_pin:out 5
+out_pin:out 6
+out_pin:out 7
+out_pin:out 8
+
+slider1:1<1,1,1>-version
+slider2:0<0,30,1>-solo
+slider3:0<0,1000000,1>-seed
+slider4:0<0,1,0.0001>Macro 1
+slider5:0<0,1,0.0001>Macro 2
+slider6:0<0,1,0.0001>Macro 3
+slider7:0<0,1,0.0001>Macro 4
+slider8:0<0,1,0.0001>Macro 5
+slider9:0<0,1,0.0001>Macro 6
+slider10:0<0,1,0.0001>Macro 7
+slider11:0<0,1,0.0001>Macro 8
+slider12:0<0,6,1>-lfo.1.shape
+slider13:1<0.01,50,0.0001>-lfo.1.rate
+slider14:8<0,19,1>-lfo.1.div
+slider15:0<0,1,1>-lfo.1.sync
+slider16:0<0,1,0.0001>-lfo.1.phase
+slider17:0<0,1000000,1>-lfo.1.seed
+slider18:0<0,1000,0.0001>-lfo.1.smooth
+slider19:0.5<0,1,0.0001>-lfo.1.out
+slider20:0<0,6,1>-lfo.2.shape
+slider21:1<0.01,50,0.0001>-lfo.2.rate
+slider22:8<0,19,1>-lfo.2.div
+slider23:0<0,1,1>-lfo.2.sync
+slider24:0<0,1,0.0001>-lfo.2.phase
+slider25:0<0,1000000,1>-lfo.2.seed
+slider26:0<0,1000,0.0001>-lfo.2.smooth
+slider27:0.5<0,1,0.0001>-lfo.2.out
+slider28:0<0,6,1>-lfo.3.shape
+slider29:1<0.01,50,0.0001>-lfo.3.rate
+slider30:8<0,19,1>-lfo.3.div
+slider31:0<0,1,1>-lfo.3.sync
+slider32:0<0,1,0.0001>-lfo.3.phase
+slider33:0<0,1000000,1>-lfo.3.seed
+slider34:0<0,1000,0.0001>-lfo.3.smooth
+slider35:0.5<0,1,0.0001>-lfo.3.out
+slider36:0<0,6,1>-lfo.4.shape
+slider37:1<0.01,50,0.0001>-lfo.4.rate
+slider38:8<0,19,1>-lfo.4.div
+slider39:0<0,1,1>-lfo.4.sync
+slider40:0<0,1,0.0001>-lfo.4.phase
+slider41:0<0,1000000,1>-lfo.4.seed
+slider42:0<0,1000,0.0001>-lfo.4.smooth
+slider43:0.5<0,1,0.0001>-lfo.4.out
+slider44:0<0,3,1>-fol.1.input
+slider45:0<0,1,1>-fol.1.mode
+slider46:0<-24,24,0.0001>-fol.1.gain
+slider47:10<0.1,5000,0.0001>-fol.1.attack
+slider48:100<0.1,5000,0.0001>-fol.1.release
+slider49:0<0,5000,0.0001>-fol.1.hold
+slider50:0<0,1000,0.0001>-fol.1.smooth
+slider51:0<0,1,0.0001>-fol.1.out
+slider52:0<0,3,1>-fol.2.input
+slider53:0<0,1,1>-fol.2.mode
+slider54:0<-24,24,0.0001>-fol.2.gain
+slider55:10<0.1,5000,0.0001>-fol.2.attack
+slider56:100<0.1,5000,0.0001>-fol.2.release
+slider57:0<0,5000,0.0001>-fol.2.hold
+slider58:0<0,1000,0.0001>-fol.2.smooth
+slider59:0<0,1,0.0001>-fol.2.out
+slider60:0<0,1,1>-slot.1.mode
+slider61:1<0,1,1>-slot.1.enable
+slider62:0<0,1000,0.0001>-slot.1.slew
+slider63:0<0,1,0.0001>-slot.1.out
+slider64:0<0,30,1>-slot.1.a.src
+slider65:0<-1,1,0.0001>-slot.1.a.lo
+slider66:0<-1,1,0.0001>-slot.1.a.hi
+slider67:0<0,3,1>-slot.1.a.curve
+slider68:0<0,30,1>-slot.1.b.src
+slider69:0<-1,1,0.0001>-slot.1.b.lo
+slider70:0<-1,1,0.0001>-slot.1.b.hi
+slider71:0<0,3,1>-slot.1.b.curve
+slider72:0<0,30,1>-slot.1.c.src
+slider73:0<-1,1,0.0001>-slot.1.c.lo
+slider74:0<-1,1,0.0001>-slot.1.c.hi
+slider75:0<0,3,1>-slot.1.c.curve
+slider76:0<0,1,1>-slot.2.mode
+slider77:1<0,1,1>-slot.2.enable
+slider78:0<0,1000,0.0001>-slot.2.slew
+slider79:0<0,1,0.0001>-slot.2.out
+slider80:0<0,30,1>-slot.2.a.src
+slider81:0<-1,1,0.0001>-slot.2.a.lo
+slider82:0<-1,1,0.0001>-slot.2.a.hi
+slider83:0<0,3,1>-slot.2.a.curve
+slider84:0<0,30,1>-slot.2.b.src
+slider85:0<-1,1,0.0001>-slot.2.b.lo
+slider86:0<-1,1,0.0001>-slot.2.b.hi
+slider87:0<0,3,1>-slot.2.b.curve
+slider88:0<0,30,1>-slot.2.c.src
+slider89:0<-1,1,0.0001>-slot.2.c.lo
+slider90:0<-1,1,0.0001>-slot.2.c.hi
+slider91:0<0,3,1>-slot.2.c.curve
+slider92:0<0,1,1>-slot.3.mode
+slider93:1<0,1,1>-slot.3.enable
+slider94:0<0,1000,0.0001>-slot.3.slew
+slider95:0<0,1,0.0001>-slot.3.out
+slider96:0<0,30,1>-slot.3.a.src
+slider97:0<-1,1,0.0001>-slot.3.a.lo
+slider98:0<-1,1,0.0001>-slot.3.a.hi
+slider99:0<0,3,1>-slot.3.a.curve
+slider100:0<0,30,1>-slot.3.b.src
+slider101:0<-1,1,0.0001>-slot.3.b.lo
+slider102:0<-1,1,0.0001>-slot.3.b.hi
+slider103:0<0,3,1>-slot.3.b.curve
+slider104:0<0,30,1>-slot.3.c.src
+slider105:0<-1,1,0.0001>-slot.3.c.lo
+slider106:0<-1,1,0.0001>-slot.3.c.hi
+slider107:0<0,3,1>-slot.3.c.curve
+slider108:0<0,1,1>-slot.4.mode
+slider109:1<0,1,1>-slot.4.enable
+slider110:0<0,1000,0.0001>-slot.4.slew
+slider111:0<0,1,0.0001>-slot.4.out
+slider112:0<0,30,1>-slot.4.a.src
+slider113:0<-1,1,0.0001>-slot.4.a.lo
+slider114:0<-1,1,0.0001>-slot.4.a.hi
+slider115:0<0,3,1>-slot.4.a.curve
+slider116:0<0,30,1>-slot.4.b.src
+slider117:0<-1,1,0.0001>-slot.4.b.lo
+slider118:0<-1,1,0.0001>-slot.4.b.hi
+slider119:0<0,3,1>-slot.4.b.curve
+slider120:0<0,30,1>-slot.4.c.src
+slider121:0<-1,1,0.0001>-slot.4.c.lo
+slider122:0<-1,1,0.0001>-slot.4.c.hi
+slider123:0<0,3,1>-slot.4.c.curve
+slider124:0<0,1,1>-slot.5.mode
+slider125:1<0,1,1>-slot.5.enable
+slider126:0<0,1000,0.0001>-slot.5.slew
+slider127:0<0,1,0.0001>-slot.5.out
+slider128:0<0,30,1>-slot.5.a.src
+slider129:0<-1,1,0.0001>-slot.5.a.lo
+slider130:0<-1,1,0.0001>-slot.5.a.hi
+slider131:0<0,3,1>-slot.5.a.curve
+slider132:0<0,30,1>-slot.5.b.src
+slider133:0<-1,1,0.0001>-slot.5.b.lo
+slider134:0<-1,1,0.0001>-slot.5.b.hi
+slider135:0<0,3,1>-slot.5.b.curve
+slider136:0<0,30,1>-slot.5.c.src
+slider137:0<-1,1,0.0001>-slot.5.c.lo
+slider138:0<-1,1,0.0001>-slot.5.c.hi
+slider139:0<0,3,1>-slot.5.c.curve
+slider140:0<0,1,1>-slot.6.mode
+slider141:1<0,1,1>-slot.6.enable
+slider142:0<0,1000,0.0001>-slot.6.slew
+slider143:0<0,1,0.0001>-slot.6.out
+slider144:0<0,30,1>-slot.6.a.src
+slider145:0<-1,1,0.0001>-slot.6.a.lo
+slider146:0<-1,1,0.0001>-slot.6.a.hi
+slider147:0<0,3,1>-slot.6.a.curve
+slider148:0<0,30,1>-slot.6.b.src
+slider149:0<-1,1,0.0001>-slot.6.b.lo
+slider150:0<-1,1,0.0001>-slot.6.b.hi
+slider151:0<0,3,1>-slot.6.b.curve
+slider152:0<0,30,1>-slot.6.c.src
+slider153:0<-1,1,0.0001>-slot.6.c.lo
+slider154:0<-1,1,0.0001>-slot.6.c.hi
+slider155:0<0,3,1>-slot.6.c.curve
+slider156:0<0,1,1>-slot.7.mode
+slider157:1<0,1,1>-slot.7.enable
+slider158:0<0,1000,0.0001>-slot.7.slew
+slider159:0<0,1,0.0001>-slot.7.out
+slider160:0<0,30,1>-slot.7.a.src
+slider161:0<-1,1,0.0001>-slot.7.a.lo
+slider162:0<-1,1,0.0001>-slot.7.a.hi
+slider163:0<0,3,1>-slot.7.a.curve
+slider164:0<0,30,1>-slot.7.b.src
+slider165:0<-1,1,0.0001>-slot.7.b.lo
+slider166:0<-1,1,0.0001>-slot.7.b.hi
+slider167:0<0,3,1>-slot.7.b.curve
+slider168:0<0,30,1>-slot.7.c.src
+slider169:0<-1,1,0.0001>-slot.7.c.lo
+slider170:0<-1,1,0.0001>-slot.7.c.hi
+slider171:0<0,3,1>-slot.7.c.curve
+slider172:0<0,1,1>-slot.8.mode
+slider173:1<0,1,1>-slot.8.enable
+slider174:0<0,1000,0.0001>-slot.8.slew
+slider175:0<0,1,0.0001>-slot.8.out
+slider176:0<0,30,1>-slot.8.a.src
+slider177:0<-1,1,0.0001>-slot.8.a.lo
+slider178:0<-1,1,0.0001>-slot.8.a.hi
+slider179:0<0,3,1>-slot.8.a.curve
+slider180:0<0,30,1>-slot.8.b.src
+slider181:0<-1,1,0.0001>-slot.8.b.lo
+slider182:0<-1,1,0.0001>-slot.8.b.hi
+slider183:0<0,3,1>-slot.8.b.curve
+slider184:0<0,30,1>-slot.8.c.src
+slider185:0<-1,1,0.0001>-slot.8.c.lo
+slider186:0<-1,1,0.0001>-slot.8.c.hi
+slider187:0<0,3,1>-slot.8.c.curve
+slider188:0<0,1,1>-slot.9.mode
+slider189:1<0,1,1>-slot.9.enable
+slider190:0<0,1000,0.0001>-slot.9.slew
+slider191:0<0,1,0.0001>-slot.9.out
+slider192:0<0,30,1>-slot.9.a.src
+slider193:0<-1,1,0.0001>-slot.9.a.lo
+slider194:0<-1,1,0.0001>-slot.9.a.hi
+slider195:0<0,3,1>-slot.9.a.curve
+slider196:0<0,30,1>-slot.9.b.src
+slider197:0<-1,1,0.0001>-slot.9.b.lo
+slider198:0<-1,1,0.0001>-slot.9.b.hi
+slider199:0<0,3,1>-slot.9.b.curve
+slider200:0<0,30,1>-slot.9.c.src
+slider201:0<-1,1,0.0001>-slot.9.c.lo
+slider202:0<-1,1,0.0001>-slot.9.c.hi
+slider203:0<0,3,1>-slot.9.c.curve
+slider204:0<0,1,1>-slot.10.mode
+slider205:1<0,1,1>-slot.10.enable
+slider206:0<0,1000,0.0001>-slot.10.slew
+slider207:0<0,1,0.0001>-slot.10.out
+slider208:0<0,30,1>-slot.10.a.src
+slider209:0<-1,1,0.0001>-slot.10.a.lo
+slider210:0<-1,1,0.0001>-slot.10.a.hi
+slider211:0<0,3,1>-slot.10.a.curve
+slider212:0<0,30,1>-slot.10.b.src
+slider213:0<-1,1,0.0001>-slot.10.b.lo
+slider214:0<-1,1,0.0001>-slot.10.b.hi
+slider215:0<0,3,1>-slot.10.b.curve
+slider216:0<0,30,1>-slot.10.c.src
+slider217:0<-1,1,0.0001>-slot.10.c.lo
+slider218:0<-1,1,0.0001>-slot.10.c.hi
+slider219:0<0,3,1>-slot.10.c.curve
+slider220:0<0,1,1>-slot.11.mode
+slider221:1<0,1,1>-slot.11.enable
+slider222:0<0,1000,0.0001>-slot.11.slew
+slider223:0<0,1,0.0001>-slot.11.out
+slider224:0<0,30,1>-slot.11.a.src
+slider225:0<-1,1,0.0001>-slot.11.a.lo
+slider226:0<-1,1,0.0001>-slot.11.a.hi
+slider227:0<0,3,1>-slot.11.a.curve
+slider228:0<0,30,1>-slot.11.b.src
+slider229:0<-1,1,0.0001>-slot.11.b.lo
+slider230:0<-1,1,0.0001>-slot.11.b.hi
+slider231:0<0,3,1>-slot.11.b.curve
+slider232:0<0,30,1>-slot.11.c.src
+slider233:0<-1,1,0.0001>-slot.11.c.lo
+slider234:0<-1,1,0.0001>-slot.11.c.hi
+slider235:0<0,3,1>-slot.11.c.curve
+slider236:0<0,1,1>-slot.12.mode
+slider237:1<0,1,1>-slot.12.enable
+slider238:0<0,1000,0.0001>-slot.12.slew
+slider239:0<0,1,0.0001>-slot.12.out
+slider240:0<0,30,1>-slot.12.a.src
+slider241:0<-1,1,0.0001>-slot.12.a.lo
+slider242:0<-1,1,0.0001>-slot.12.a.hi
+slider243:0<0,3,1>-slot.12.a.curve
+slider244:0<0,30,1>-slot.12.b.src
+slider245:0<-1,1,0.0001>-slot.12.b.lo
+slider246:0<-1,1,0.0001>-slot.12.b.hi
+slider247:0<0,3,1>-slot.12.b.curve
+slider248:0<0,30,1>-slot.12.c.src
+slider249:0<-1,1,0.0001>-slot.12.c.lo
+slider250:0<-1,1,0.0001>-slot.12.c.hi
+slider251:0<0,3,1>-slot.12.c.curve
+
+@init
+ext_noinit = 1; // transport start must not reset the free-running counters
+slider1 = 1;
+first_block = 1; // seed smoothing state from the saved sliders in the first @block
+last_pos = -1;   // play_position at the end of the last @block (restart rule)
+was_playing = 0; // playing at the end of the last @block (restart rule)
+
+// Memory map (plain offsets). [id] = source id, [u] = unit, [s] = slot,
+// [i*12+s] = input i (0 A, 1 B, 2 C) of slot s.
+ref_count = 0;   // [9..14] slots referencing LFO 1..4, follower 1..2
+src_val = 16;    // [0..16] source values this block
+src_ok = 40;     // [0..16] 1 unless soloed away
+lfo_free = 60;   // [u] free-running seconds while stopped
+lfo_sm = 64;     // [u] smoothed output
+fol_env = 68;    // [u] envelope
+fol_ms = 70;     // [u] RMS mean-square
+fol_hold = 72;   // [u] hold counter (samples)
+fol_sm = 74;     // [u] smoothed output
+fol_in = 80;     // [u] cached params, set in @slider
+fol_mode = 82;
+fol_gain = 84;
+fol_ca = 86;
+fol_cr = 88;
+fol_holdn = 90;
+s_mode = 100;    // [s]
+s_en = 112;
+s_slew = 124;
+s_held = 136;    // [s] input A's last active contribution
+s_sm = 148;      // [s] slewed output
+s_src = 160;     // [i*12+s]
+s_lo = 196;
+s_hi = 232;
+s_cur = 268;
+div_tab = 310;   // [0..19] beats per division; 14..19 are bar counts
+memset(0, 0, 400);
+div_tab[0] = 0.0625; div_tab[1] = 0.125; div_tab[2] = 1 / 6; div_tab[3] = 0.25;
+div_tab[4] = 0.375; div_tab[5] = 1 / 3; div_tab[6] = 0.5; div_tab[7] = 0.75;
+div_tab[8] = 1; div_tab[9] = 2 / 3; div_tab[10] = 1.5; div_tab[11] = 4 / 3;
+div_tab[12] = 2; div_tab[13] = 3;
+div_tab[14] = 1; div_tab[15] = 2; div_tab[16] = 4; div_tab[17] = 8;
+div_tab[18] = 16; div_tab[19] = 32;
+
+// Hash: bitwise-free and double-exact (twin of E.hash01).
+function fmod32(x) ( x - floor(x / 4294967296) * 4294967296 );
+function fmod16(x) ( x - floor(x / 65536) * 65536 );
+function mulmod32(h, k) local(lo, hi) (
+  lo = fmod16(h);
+  hi = (h - lo) / 65536;
+  fmod32(lo * k + fmod16(hi * k) * 65536);
+);
+function fold(h) local(lo, hi) (
+  lo = fmod16(h);
+  hi = (h - lo) / 65536;
+  fmod32(h + hi);
+);
+function hash01(seed, k) local(h) (
+  h = fmod32(seed * 2654435761 + k * 40503);
+  h = mulmod32(h, 73244475);
+  h = fold(h);
+  h = mulmod32(h, 668265261);
+  h = fold(h);
+  h / 4294967296;
+);
+
+function clamp01(x) ( max(0, min(1, x)) );
+
+// 0 linear, 1 x*x, 2 sqrt, 3 smoothstep (E.curve).
+function crv(id, x) (
+  x = clamp01(x);
+  id == 1 ? x * x : id == 2 ? sqrt(x) : id == 3 ? x * x * (3 - 2 * x) : x;
+);
+
+function conn(lo, hi, cid, x) ( lo + (hi - lo) * crv(cid, x) );
+
+// Quarter notes in one LFO cycle for division index d (E.DIV). Entries 0..13 are
+// already quarter notes; 14..19 are bar counts, scaled by bar_qn (quarter notes
+// per bar = ts_num * 4 / ts_denom), since beat_position counts quarter notes.
+function div_beats(tab, d, bar_qn) local(i) (
+  i = max(0, min(19, floor(d + 0.5)));
+  i < 14 ? tab[i] : tab[i] * bar_qn;
+);
+
+// 0 sine, 1 tri, 2 saw up, 3 saw down, 4 square, 5 S&H, 6 smooth random (E.lfo).
+function lfo_shape(shape, frac, cycle, seed) local(a, b, t) (
+  shape == 0 ? 0.5 + 0.5 * sin(2 * $pi * frac) :
+  shape == 1 ? (frac < 0.5 ? 2 * frac : 2 - 2 * frac) :
+  shape == 2 ? frac :
+  shape == 3 ? 1 - frac :
+  shape == 4 ? (frac < 0.5 ? 1 : 0) :
+  shape == 5 ? hash01(seed, cycle) :
+  shape == 6 ? (
+    a = hash01(seed, cycle);
+    b = hash01(seed, cycle + 1);
+    t = (1 - cos($pi * frac)) * 0.5;
+    a + (b - a) * t;
+  ) : 0;
+);
+
+// One-pole control-rate smoothing/slew over one block (E.slew).
+function smooth_step(prev, target, ms, nsamp, sr) (
+  ms > 0 ? prev + (target - prev) * (1 - exp(-(nsamp / sr) / (ms / 1000))) : target;
+);
+
+// Guarded slider write: only when the value moved by more than 0.000001.
+function setsl(idx, v) (
+  abs(v - slider(idx)) > 0.000001 ? ( slider(idx) = v; );
+);
+
+@slider
+// Cache every slot's parameters and recount unit references.
+id = 9;
+loop(6, ref_count[id] = 0; id += 1;);
+s = 0;
+loop(12,
+  base = 60 + s * 16;
+  s_mode[s] = floor(slider(base) + 0.5);
+  s_en[s] = slider(base + 1) >= 0.5;
+  s_slew[s] = slider(base + 2);
+  i = 0;
+  loop(3,
+    ib = base + 4 + i * 4;
+    idx = i * 12 + s;
+    src = floor(slider(ib) + 0.5);
+    s_src[idx] = src;
+    s_lo[idx] = slider(ib + 1);
+    s_hi[idx] = slider(ib + 2);
+    s_cur[idx] = floor(slider(ib + 3) + 0.5);
+    b = src > 16 ? src - 16 : src; // a bypassed twin still counts as a reference
+    (b >= 9 && b <= 14) ? ( ref_count[b] += 1; );
+    i += 1;
+  );
+  s += 1;
+);
+u = 0;
+loop(2,
+  fb = 44 + u * 8;
+  fol_in[u] = floor(slider(fb) + 0.5);
+  fol_mode[u] = floor(slider(fb + 1) + 0.5);
+  fol_gain[u] = exp(slider(fb + 2) * log(10) / 20);
+  fol_ca[u] = exp(-1 / (max(slider(fb + 3), 0.1) * 0.001 * srate));
+  fol_cr[u] = exp(-1 / (max(slider(fb + 4), 0.1) * 0.001 * srate));
+  fol_holdn[u] = slider(fb + 5) * 0.001 * srate;
+  u += 1;
+);
+
+@block
+blk_t = samplesblock / srate;
+playing = play_state & 1;
+tempo_s = max(tempo, 1);
+bar_qn = (ts_denom > 0 && ts_num > 0) ? ts_num * 4 / ts_denom : 4;
+
+// 0. First block after load: resume where the saved sliders left off.
+first_block ? (
+  u = 0;
+  loop(4, lfo_sm[u] = slider(12 + u * 8 + 7); u += 1;);
+  u = 0;
+  loop(2, fol_sm[u] = slider(44 + u * 8 + 7); u += 1;);
+  s = 0;
+  loop(12, s_sm[s] = slider(60 + s * 16 + 3); s += 1;);
+  seed_held = 1; // s_held is seeded in 3b, once this block's sources are known
+  last_pos = play_position; // block 1 is not a jump
+  was_playing = playing;
+  first_block = 0;
+);
+
+// 0b. Restart (only while playing): snaps the smoothing (1, 4) and restarts
+// the followers (2).
+jumped = playing && (!was_playing || play_position < last_pos - 0.000000001 ||
+  play_position - last_pos > max(0.5, blk_t * 16));
+timeline = playing; // LFO phase from the timeline, else the free counters
+
+// 1. LFOs
+u = 0;
+loop(4,
+  (ref_count[9 + u] > 0) ? (
+    b = 12 + u * 8;
+    sync = slider(b + 3) >= 0.5;
+    rate = slider(b + 1);
+    cyc_beats = div_beats(div_tab, slider(b + 2), bar_qn);
+    sync ? (
+      timeline ? ( raw = beat_position / cyc_beats; ) : (
+        lfo_free[u] += blk_t;
+        raw = lfo_free[u] / (cyc_beats * 60 / tempo_s);
+      );
+    ) : (
+      timeline ? ( raw = play_position * rate; ) : (
+        lfo_free[u] += blk_t;
+        raw = lfo_free[u] * rate;
+      );
+    );
+    raw += slider(b + 4);
+    cycle = floor(raw);
+    frac = raw - cycle;
+    v = lfo_shape(floor(slider(b) + 0.5), frac, cycle, slider(b + 5));
+    jumped ? ( lfo_sm[u] = v; ) : (
+      lfo_sm[u] = smooth_step(lfo_sm[u], v, slider(b + 6), samplesblock, srate);
+    );
+    setsl(b + 7, lfo_sm[u]);
+  );
+  u += 1;
+);
+
+// 2. Followers (envelope comes from @sample)
+u = 0;
+loop(2,
+  (ref_count[13 + u] > 0) ? (
+    b = 44 + u * 8;
+    jumped ? (
+      fol_env[u] = 0; // restart the detector from silence
+      fol_ms[u] = 0;
+      fol_hold[u] = 0;
+      fol_sm[u] = 0;
+    ) : (
+      fol_sm[u] = smooth_step(fol_sm[u], min(fol_env[u], 1), slider(b + 6), samplesblock, srate);
+    );
+    setsl(b + 7, fol_sm[u]);
+  );
+  u += 1;
+);
+
+// 3. Solo and the source table
+solo = floor(slider(2) + 0.5);
+solo_base = solo > 16 ? solo - 16 : solo;
+id = 1;
+loop(8, src_val[id] = slider(3 + id); src_ok[id] = 1; id += 1;);
+loop(4, src_val[id] = slider(12 + (id - 9) * 8 + 7); src_ok[id] = 1; id += 1;);
+loop(2, src_val[id] = slider(44 + (id - 13) * 8 + 7); src_ok[id] = 1; id += 1;);
+(solo_base >= 9 && solo_base <= 14) ? (
+  id = 9;
+  loop(6, src_ok[id] = (id == solo_base); id += 1;);
+);
+
+// 3b. First block only: an absolute slot whose A is inactive (bypassed, muted,
+// disabled) holds A's last contribution. The saved out slider is A + B + C, so
+// held = clamp01(saved_out - B_now - C_now); an active A is recomputed in 4.
+seed_held ? (
+  s = 0;
+  loop(12,
+    s_held[s] = 0;
+    src = s_src[s];
+    a_act = (src > 0 && src <= 16) && (s_en[s] != 0) && (src_ok[src] != 0);
+    (s_mode[s] == 0 && !a_act) ? (
+      bc = 0;
+      i = 1;
+      loop(2,
+        idx = i * 12 + s;
+        src = s_src[idx];
+        ((src > 0 && src <= 16) && (s_en[s] != 0) && (src_ok[src] != 0)) ? (
+          bc += conn(s_lo[idx], s_hi[idx], s_cur[idx], src_val[src]);
+        );
+        i += 1;
+      );
+      s_held[s] = clamp01(s_sm[s] - bc);
+    );
+    s += 1;
+  );
+  seed_held = 0;
+);
+
+// 4. Slots
+s = 0;
+loop(12,
+  base = 60 + s * 16;
+  mode = s_mode[s];
+  en = s_en[s];
+  sum = 0;
+  i = 0;
+  loop(3,
+    idx = i * 12 + s;
+    src = s_src[idx];
+    act = 0;
+    sval = 0;
+    (src > 0 && src <= 16) ? (
+      act = (en != 0) && (src_ok[src] != 0);
+      sval = src_val[src];
+    );
+    lo = s_lo[idx];
+    hi = s_hi[idx];
+    (i == 0 && mode == 0) ? ( lo = clamp01(lo); hi = clamp01(hi); );
+    c = act ? conn(lo, hi, s_cur[idx], sval) : 0;
+    i == 0 ? (
+      act ? (
+        (mode == 0) ? ( c = clamp01(c); );
+        s_held[s] = c;
+      ) : (
+        (mode == 0) ? ( c = s_held[s]; );
+      );
+    );
+    sum += c;
+    i += 1;
+  );
+  o = mode == 0 ? clamp01(sum) : 0.5 + max(-0.5, min(0.5, sum));
+  s_sm[s] = jumped ? o : smooth_step(s_sm[s], o, s_slew[s], samplesblock, srate);
+  setsl(base + 3, s_sm[s]);
+  s += 1;
+);
+was_playing = playing;
+last_pos = play_position;
+
+@sample
+// Follower detectors; audio is never written.
+u = 0;
+loop(2,
+  (ref_count[13 + u] > 0) ? (
+    l = spl(fol_in[u] * 2);
+    r = spl(fol_in[u] * 2 + 1);
+    g = fol_gain[u];
+    fol_mode[u] == 0 ? ( x = max(abs(l), abs(r)) * g; ) : (
+      fol_ms[u] += ((l * l + r * r) * 0.5 * g * g - fol_ms[u]) * (1 - fol_ca[u]);
+      x = sqrt(fol_ms[u]);
+    );
+    x = min(max(x, 0), 1); // keep the stored envelope in 0..1 (1.0 = 0 dBFS)
+    e = fol_env[u];
+    x > e ? (
+      e = fol_ca[u] * e + (1 - fol_ca[u]) * x;
+      fol_hold[u] = fol_holdn[u];
+    ) : (fol_hold[u] > 0) ? (
+      fol_hold[u] -= 1;
+    ) : (
+      e = fol_cr[u] * e + (1 - fol_cr[u]) * x;
+    );
+    fol_env[u] = e;
+  );
+  u += 1;
+);
