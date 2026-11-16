@@ -1,5 +1,5 @@
 noindex: true
-version: 0.2.0
+version: 0.3.0
 author: Temper Tools
 desc:Temper Control Hub
 // Temper Control hub. One instance per FX chain. Each destination parameter's
@@ -20,15 +20,17 @@ desc:Temper Control Hub
 // curves (crv), connection and slot maths, the hash (hash01), slew / smoothing
 // (smooth_step), the LFO shapes (lfo_shape) and the sync divisions (div_tab).
 // JSFX-only, no Lua twin: the envelope-follower detector (@sample), the LFO
-// phase sources (play_position / beat_position while playing, free-running
-// seconds while stopped), solo masking, and the first-block seeding of the
-// smoothing / held state from the saved sliders.
+// phase sources (play_position / beat_position while playing, the shared
+// stopped clock while stopped), solo masking, and the first-block seeding of
+// the smoothing / held state from the saved sliders.
 //
 // Header slider 3 (`seed`, "global seed") is RESERVED: CTRL1 never reads it
 // (each LFO has its own lfo.n.seed). It exists so the slot stays append-only.
 //
-// Unreferenced LFO/follower units are skipped and their out sliders are left
-// as they are.
+// 0.3.0 (extension hub design 7): every LFO runs every block, so the hubs of a
+// chain (an extension hub copies the lead's unit sliders through native links)
+// show the same LFOs; an unreferenced follower is still skipped (its detector
+// runs per sample) and its out slider is left as it is.
 //
 // Restart rule (0.2.0): restarts happen only while playing. A playing block
 // jumped on a stopped-to-playing edge (transport start, render start), a
@@ -36,8 +38,8 @@ desc:Temper Control Hub
 // max(0.5 s, 16 blocks) (seek ahead; playrate up to 4x stays under it). On a
 // jumped block the LFO and slot smoothing snap to their targets and the
 // followers restart from silence. The LFO phase reads the timeline only while
-// playing; stopped, it runs on the free counters, so a cursor click while
-// stopped never pops the preview. The first block after load is not a jump: it
+// playing; stopped, it runs on the shared clock (0.3.0; before it, a per-hub
+// counter), so a cursor click while stopped never pops the preview. The first block after load is not a jump: it
 // keeps the seeding from the saved sliders. s_held (an inactive absolute A
 // holding its last contribution) is routing state and is kept.
 
@@ -311,7 +313,8 @@ slider250:0<-1,1,0.0001>-slot.12.c.hi
 slider251:0<0,3,1>-slot.12.c.curve
 
 @init
-ext_noinit = 1; // transport start must not reset the free-running counters
+ext_noinit = 1; // transport start must not reset the stopped clock or the smoothing
+clk = time_precise(); // the shared stopped clock (seconds); see @block 0c
 slider1 = 1;
 first_block = 1; // seed smoothing state from the saved sliders in the first @block
 last_pos = -1;   // play_position at the end of the last @block (restart rule)
@@ -322,7 +325,7 @@ was_playing = 0; // playing at the end of the last @block (restart rule)
 ref_count = 0;   // [9..14] slots referencing LFO 1..4, follower 1..2
 src_val = 16;    // [0..16] source values this block
 src_ok = 40;     // [0..16] 1 unless soloed away
-lfo_free = 60;   // [u] free-running seconds while stopped
+                 // 60..63 unused since 0.3.0 (the per-hub stopped counters)
 lfo_sm = 64;     // [u] smoothed output
 fol_env = 68;    // [u] envelope
 fol_ms = 70;     // [u] RMS mean-square
@@ -481,34 +484,35 @@ jumped = playing && (!was_playing || play_position < last_pos - 0.000000001 ||
   play_position - last_pos > max(0.5, blk_t * 16));
 timeline = playing; // LFO phase from the timeline, else the free counters
 
-// 1. LFOs
+// 0c. The shared stopped clock (0.3.0, extension hub design 7): it advances
+// one block per block and is pulled toward the system clock (a jump when more
+// than 0.5 s off), so every hub of every chain shows the same stopped phase,
+// and the preview stays smooth when blocks arrive in bursts.
+clk += blk_t;
+clk_err = time_precise() - clk;
+abs(clk_err) > 0.5 ? ( clk += clk_err; ) : ( clk += clk_err * 0.05; );
+
+// 1. LFOs (0.3.0: all four run every block, whatever the slots use, so every
+// hub of a chain holds the same LFO outputs and smoothing)
 u = 0;
 loop(4,
-  (ref_count[9 + u] > 0) ? (
-    b = 12 + u * 8;
-    sync = slider(b + 3) >= 0.5;
-    rate = slider(b + 1);
-    cyc_beats = div_beats(div_tab, slider(b + 2), bar_qn);
-    sync ? (
-      timeline ? ( raw = beat_position / cyc_beats; ) : (
-        lfo_free[u] += blk_t;
-        raw = lfo_free[u] / (cyc_beats * 60 / tempo_s);
-      );
-    ) : (
-      timeline ? ( raw = play_position * rate; ) : (
-        lfo_free[u] += blk_t;
-        raw = lfo_free[u] * rate;
-      );
-    );
-    raw += slider(b + 4);
-    cycle = floor(raw);
-    frac = raw - cycle;
-    v = lfo_shape(floor(slider(b) + 0.5), frac, cycle, slider(b + 5));
-    jumped ? ( lfo_sm[u] = v; ) : (
-      lfo_sm[u] = smooth_step(lfo_sm[u], v, slider(b + 6), samplesblock, srate);
-    );
-    setsl(b + 7, lfo_sm[u]);
+  b = 12 + u * 8;
+  sync = slider(b + 3) >= 0.5;
+  rate = slider(b + 1);
+  cyc_beats = div_beats(div_tab, slider(b + 2), bar_qn);
+  sync ? (
+    raw = timeline ? beat_position / cyc_beats : clk / (cyc_beats * 60 / tempo_s);
+  ) : (
+    raw = timeline ? play_position * rate : clk * rate;
   );
+  raw += slider(b + 4);
+  cycle = floor(raw);
+  frac = raw - cycle;
+  v = lfo_shape(floor(slider(b) + 0.5), frac, cycle, slider(b + 5));
+  jumped ? ( lfo_sm[u] = v; ) : (
+    lfo_sm[u] = smooth_step(lfo_sm[u], v, slider(b + 6), samplesblock, srate);
+  );
+  setsl(b + 7, lfo_sm[u]);
   u += 1;
 );
 
