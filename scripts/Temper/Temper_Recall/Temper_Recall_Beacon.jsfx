@@ -1,0 +1,387 @@
+noindex: true
+version: 1.0.0
+author: Temper Tools
+desc: Temper Recall Beacon
+// Temper Recall's track beacon. Put it on a track and switch Listen On: while
+// it owns the hand-off it copies its input into a FIFO in Recall's gmem
+// namespace, and Recall's engine (Temper_Recall.jsfx, Monitor FX) records that
+// in place of the master. One beacon at a time; the audio passes through
+// untouched.
+//
+// Hand-off block: LOCKSTEP with lib/temper_recall_beacon.lua M.OFF and
+// Temper_Recall.jsfx. Change a slot in all three, same commit.
+//   header at HANDOFF_BASE = 7736448 + offset
+//   (B = beacon writes, E = engine, L = Recall's Lua only)
+//    0 OWNER         B  the owner's beacon_id; 0 = the master (Recall clears it)
+//    1 HEARTBEAT     B  +1 per feeding block
+//    2 NCH           B  FIFO width = min(track channels, 16)
+//    3 WRITE         B  write index in floats; only grows
+//    4 READ          E  read index in floats; only grows
+//    5 SKIP_TO       B  where the stream starts again after a skip
+//    6 SKIP_GEN      B  +1 per skip
+//    7 ENGINE_STATE  E  0 master, 1 beacon feeding, 2 beacon selected but silent
+//    8 BEACON_PROTO  B  1
+//    9 OVERRUNS      B  frames dropped on a full FIFO
+//   10 UNDERRUNS     E
+//   11 SRATE         B  the beacon's sample rate
+//   12 CLAIM         B  the owner's nonce: the hand-off is owned by token, not
+//                       by id, because a duplicated track copies the id (R-18)
+//   13 RELEASED      L  the owner Recall's MASTER released: MASTER writes
+//                       RELEASED = OWNER, then OWNER = 0 (R-44)
+//   FIFO at FIFO_BASE = 7736512, FIFO_LEN = 652096 floats (it ends at 8388608,
+//   the namespace end). usable = floor(FIFO_LEN / NCH) * NCH; the frame at
+//   index i (a multiple of NCH) sits at FIFO_BASE + (i mod usable) + channel.
+
+options:gmem=Temper_Recall
+
+slider1:listen=0<0,1,1{Off,On}>Listen
+slider2:beacon_id=0<0,1000000000,1>-Beacon id
+
+in_pin:in 1
+in_pin:in 2
+in_pin:in 3
+in_pin:in 4
+in_pin:in 5
+in_pin:in 6
+in_pin:in 7
+in_pin:in 8
+in_pin:in 9
+in_pin:in 10
+in_pin:in 11
+in_pin:in 12
+in_pin:in 13
+in_pin:in 14
+in_pin:in 15
+in_pin:in 16
+out_pin:out 1
+out_pin:out 2
+out_pin:out 3
+out_pin:out 4
+out_pin:out 5
+out_pin:out 6
+out_pin:out 7
+out_pin:out 8
+out_pin:out 9
+out_pin:out 10
+out_pin:out 11
+out_pin:out 12
+out_pin:out 13
+out_pin:out 14
+out_pin:out 15
+out_pin:out 16
+
+@init
+// REAPER re-runs @init on exactly the events that throw away the rendered-ahead
+// audio (play start, seek while playing, resume; also about 45 ms into a
+// bypass), and clears every variable before it does (ledger probes P4, C2). So
+// ext_noinit stays 0, what must survive lives in the sliders and in gmem, and
+// the first @block after each run claims again and marks the skip (R-17, R-26).
+ext_noinit = 0;
+
+HANDOFF_BASE = 7736448;
+FIFO_BASE = 7736512;
+FIFO_LEN = 652096;
+MIN_SEC = 0.35;                // feed only while the FIFO holds this many seconds
+PROTO = 1;                     // what BEACON_PROTO reads
+// EEL2 names ignore case, so the slots carry H_: a bare SRATE would be the
+// built-in srate.
+H_OWNER        = HANDOFF_BASE + 0;
+H_HEARTBEAT    = HANDOFF_BASE + 1;
+H_NCH          = HANDOFF_BASE + 2;
+H_WRITE        = HANDOFF_BASE + 3;
+H_READ         = HANDOFF_BASE + 4;
+H_SKIP_TO      = HANDOFF_BASE + 5;
+H_SKIP_GEN     = HANDOFF_BASE + 6;
+H_ENGINE_STATE = HANDOFF_BASE + 7;
+H_BEACON_PROTO = HANDOFF_BASE + 8;
+H_OVERRUNS     = HANDOFF_BASE + 9;
+H_UNDERRUNS    = HANDOFF_BASE + 10;
+H_SRATE        = HANDOFF_BASE + 11;
+H_CLAIM        = HANDOFF_BASE + 12;
+H_RELEASED     = HANDOFF_BASE + 13;
+
+// The rule of temper_recall_beacon.lua M.fits: the FIFO must hold MIN_SEC at
+// this width and rate.
+function fits(n) (
+  floor(FIFO_LEN / n) / srate >= MIN_SEC;
+);
+
+// Position of index i in a FIFO of len floats. The indices only grow (gmem
+// holds doubles, exact to 2^53; R-14), and EEL2's modulo converts to integers,
+// which may be 32-bit: an index passes 2^31 within the hour at 16 ch / 48 kHz.
+// So it is taken with floor. The engine must map READ the same way.
+function fifo_pos(i, len) local(q) (
+  q = i - floor(i / len) * len;
+  q < 0 ? q += len;
+  q >= len ? q -= len;
+  q;
+);
+
+// The first frame boundary at or after i at the current width. After a width
+// change, or a takeover from a beacon of another width, WRITE is not a multiple
+// of bw; stepping up to one keeps every frame whole inside usable (itself a
+// multiple of bw), so no frame runs past FIFO_LEN.
+function align_up(i) local(a) (
+  a = floor(i / bw) * bw;
+  a < i ? a += bw;
+  a;
+);
+
+// Where this beacon writes next: gmem's WRITE, unless its own last published
+// WRITE or its own last skip mark is higher, so WRITE never goes back and a
+// feeding start never falls below the SKIP_TO the engine jumps to (R-41). An
+// old owner still finishing a frame on another render thread can publish a
+// lower value.
+function write_base() (
+  max(max(gmem[H_WRITE], w_pub), skip_floor);
+);
+
+// A skip: the stream starts again at SKIP_TO. SKIP_TO goes first, because the
+// engine moves READ there once SKIP_GEN moves. WRITE reaches SKIP_TO with the
+// first frame written there, so the engine never reads the step-up gap.
+// skip_floor keeps the mark: the frames before it are never read, so they do
+// not count as fill (R-40).
+function mark_skip() (
+  skip_floor = align_up(write_base());
+  gmem[H_SKIP_TO] = skip_floor;
+  gmem[H_SKIP_GEN] += 1;
+);
+
+// Its own Listen changes: plain assignment plus sliderchange changes the host
+// value with no undo point and keeps the project clean (C2, R-28). prev_listen
+// follows, so the next block sees no edge.
+function listen_off() (
+  listen = 0;
+  sliderchange(listen);
+  prev_listen = 0;
+);
+
+// Only the token holder clears OWNER, so a beacon that yielded never clears
+// the one that took over (R-18).
+function release() (
+  gmem[H_CLAIM] == my_nonce ? gmem[H_OWNER] = 0;
+);
+
+// Too many channels at this sample rate: off, and the face says why.
+function out_of_range() (
+  listen_off();
+  release();
+  face_msg = 3;
+);
+
+// Everything the engine reads goes in before OWNER, which is what switches
+// the engine to the beacon. A claim starts a new stream, so it marks a skip.
+// rand() is believed to be one process-wide generator, so the nonce is drawn
+// again while it equals the token in gmem (R-41).
+function claim() (
+  fits(bw) ? (
+    while (my_nonce == gmem[H_CLAIM]) (
+      my_nonce = floor(rand(999999998)) + 1;
+    );
+    gmem[H_CLAIM] = my_nonce;
+    gmem[H_NCH] = bw;
+    gmem[H_SRATE] = srate;
+    gmem[H_BEACON_PROTO] = PROTO;
+    mark_skip();
+    gmem[H_OWNER] = my_id;
+  ) : (
+    out_of_range();
+  );
+);
+
+// Listen edges, handled in @block only (R-26). prev_listen is -1 after every
+// @init, so a listening beacon claims, and marks the skip, in the first block
+// after a re-run: at once for a start, seek or resume; at the unbypass for a
+// bypass, so the audio still to be heard is never cut. That re-claim yields
+// instead when another beacon holds the hand-off: an unbypassed beacon left On
+// does not take it back from the one the user chose meanwhile, and of two
+// saved On the first to run keeps it (R-39). It also yields when Recall's
+// MASTER released this beacon while no block ran, paused or bypassed (R-44).
+// A user's switch-on always claims.
+function listen_edge() local(o) (
+  listen != prev_listen ? (
+    listen > 0.5 ? (
+      o = gmem[H_OWNER];
+      (prev_listen == -1 && ((o != 0 && o != my_id) || (o == 0 && gmem[H_RELEASED] == my_id))) ? (
+        listen_off();
+      ) : (
+        claim();
+      );
+    ) : (
+      prev_listen > 0.5 ? release();
+    );
+    prev_listen = listen;
+  );
+);
+
+// The id survives @init re-runs, saves and reopens when set by plain
+// assignment to the named slider (C2, R-27). The nonce is new on every run.
+beacon_id < 1 ? beacon_id = floor(rand(999999998)) + 1;
+my_id = beacon_id;
+my_nonce = floor(rand(999999998)) + 1;
+prev_listen = -1;
+skip_floor = 0;
+w_pub = 0;
+feeding = 0;
+read_last = -1;
+read_still = 0;
+face_msg = 0;
+
+@block
+// The track's channel count. Never num_ch: it reads 16 once the user edits the
+// pin map (P2, R-16).
+bw = min(get_host_numchan(), 16);
+bw < 1 ? bw = 1;
+
+listen_edge();
+
+// The hand-off belongs to the token in CLAIM. A listening beacon that lost it
+// to another claim, or finds OWNER cleared (Recall's MASTER, or Recall found
+// no beacon), switches itself off (R-18).
+own = gmem[H_CLAIM] == my_nonce;
+owner_now = gmem[H_OWNER];
+(listen > 0.5 && (!own || owner_now == 0)) ? listen_off();
+feeding = listen > 0.5;
+
+// A width change while feeding: the skip goes first, so the engine never reads
+// old-width frames at the new width (R-23). Only the token holder changes it.
+(feeding && gmem[H_CLAIM] == my_nonce && bw != gmem[H_NCH]) ? (
+  fits(bw) ? (
+    mark_skip();
+    gmem[H_NCH] = bw;
+  ) : (
+    out_of_range();
+    feeding = 0;
+  );
+);
+
+feeding ? (
+  // Rewritten when it differs: two claims that interleaved on two render
+  // threads heal within a block (R-18).
+  owner_now != my_id ? gmem[H_OWNER] = my_id;
+  gmem[H_HEARTBEAT] += 1;
+  gmem[H_SRATE] = srate;
+  usable = floor(FIFO_LEN / bw) * bw;
+  w_idx = align_up(write_base());
+  slot_pos = fifo_pos(w_idx, usable);
+  // READ only grows, so a value read once per block is conservative.
+  r_idx = gmem[H_READ];
+  r_idx != read_last ? (
+    read_last = r_idx;
+    read_still = 0;
+  ) : (
+    read_still += samplesblock;
+  );
+) : (
+  read_last = -1;
+  read_still = 0;
+);
+
+// The face line. While listening, the line waits for Recall to answer a claim
+// (one engine block) before it changes.
+listen > 0.5 ? (
+  read_still >= srate ? (
+    face_msg = 4;
+  ) : (
+    gmem[H_ENGINE_STATE] == 1 ? face_msg = 1;
+  );
+) : (
+  !fits(bw) ? (
+    face_msg = 3;
+  ) : (
+    (owner_now != 0 && !own) ? (
+      face_msg = 2;
+    ) : (
+      face_msg = 0;
+    );
+  );
+);
+
+@sample
+// spl() is only read: the audio passes through untouched. Each frame is in
+// gmem before WRITE says so, and a takeover in mid-block stops the writes at
+// the next frame. The room is measured from the later of READ and the last
+// skip: at a play start or seek the dead render-ahead before SKIP_TO would
+// otherwise count with the new burst and overrun the FIFO (R-40).
+(feeding && gmem[H_CLAIM] == my_nonce) ? (
+  w_idx - max(r_idx, skip_floor) <= usable - bw ? (
+    ch = 0;
+    loop(bw,
+      gmem[FIFO_BASE + slot_pos + ch] = spl(ch);
+      ch += 1;
+    );
+    w_idx += bw;
+    gmem[H_WRITE] = w_idx;
+    w_pub = w_idx;
+    slot_pos += bw;
+    slot_pos >= usable ? slot_pos = 0;
+  ) : (
+    gmem[H_OVERRUNS] += 1;
+  );
+);
+
+@gfx 220 60
+function set_rgb(r, g, b) (
+  gfx_r = r / 255;
+  gfx_g = g / 255;
+  gfx_b = b / 255;
+  gfx_a = 1;
+);
+
+// Draws s from (x, y), wrapped at whole words to max_w; a word wider than the
+// line goes on a line of its own.
+function draw_wrapped(s, x, y, max_w) local(n, pos, cut, i, w, h, line_y) (
+  n = strlen(s);
+  pos = 0;
+  line_y = y;
+  while (pos < n) (
+    strcpy_substr(#wrap_line, s, pos, n - pos);
+    gfx_measurestr(#wrap_line, w, h);
+    cut = n;
+    w > max_w ? (
+      // The longest run of whole words that fits. cut always lands past pos,
+      // so the loop moves on.
+      cut = -1;
+      i = pos + 1;
+      while (i < n) (
+        str_getchar(s, i) == 32 ? (
+          strcpy_substr(#wrap_line, s, pos, i - pos);
+          gfx_measurestr(#wrap_line, w, h);
+          w <= max_w ? (
+            cut = i;
+          ) : (
+            cut < 0 ? cut = i;
+            i = n;
+          );
+        );
+        i += 1;
+      );
+      cut < 0 ? cut = n;
+    );
+    strcpy_substr(#wrap_line, s, pos, cut - pos);
+    gfx_measurestr(#wrap_line, w, h);
+    gfx_x = x;
+    gfx_y = line_y;
+    gfx_drawstr(#wrap_line);
+    line_y += h;
+    pos = cut;
+    while ((pos < n) && (str_getchar(s, pos) == 32)) ( pos += 1; );
+  );
+);
+
+set_rgb(14, 14, 16);              // brand WINDOW
+gfx_rect(0, 0, gfx_w, gfx_h);
+gfx_setfont(1, "Arial", 15, 'b');
+set_rgb(38, 166, 154);            // brand PRIMARY (teal)
+gfx_x = 8;
+gfx_y = 6;
+gfx_drawstr("BEACON");
+
+msg = "Off";
+face_msg == 1 ? msg = "Recall listens here";
+face_msg == 2 ? msg = "Another beacon is on";
+face_msg == 3 ? msg = "Too many channels at this sample rate for Recall";
+face_msg == 4 ? msg = "Recall's engine is not running";
+gfx_setfont(2, "Arial", 13);
+face_msg == 0 ? set_rgb(188, 201, 198) : set_rgb(222, 222, 222);   // TEXT_MUTED / TEXT_ON
+draw_wrapped(msg, 8, 27, gfx_w - 16);

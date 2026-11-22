@@ -1,5 +1,5 @@
 noindex: true
-version: 0.5.1
+version: 0.6.0
 author: Temper Tools
 desc: Temper Recall Capture Engine
 
@@ -60,6 +60,200 @@ FFT_SIZE = 4096;
 // latched high. total_frames increments regardless of ring-wrap.
 total_frames = 0;
 
+// Track beacon hand-off (Recall 0.9.0). A beacon (Temper_Recall_Beacon.jsfx,
+// on a track) that owns the hand-off copies its track into a FIFO in this gmem
+// namespace, and the engine records that in place of the master. LOCKSTEP
+// with lib/temper_recall_beacon.lua M.OFF and Temper_Recall_Beacon.jsfx:
+// change a slot in all three, same commit. The beacon writes the FIFO and
+// every header slot but three: the engine writes only READ, ENGINE_STATE and
+// UNDERRUNS. With no beacon selected (OWNER == 0) the engine records exactly
+// what 0.8.9 did: every block it reads the header and writes ENGINE_STATE = 0,
+// every name it sets is its own, and nothing else below runs.
+HANDOFF_BASE = 7736448;
+FIFO_BASE = 7736512;
+FIFO_LEN = 652096;
+// EEL2 names ignore case, so the slots carry H_: a bare NCH would be nch and
+// a bare SRATE the built-in srate.
+H_OWNER        = HANDOFF_BASE + 0;
+H_HEARTBEAT    = HANDOFF_BASE + 1;
+H_NCH          = HANDOFF_BASE + 2;
+H_WRITE        = HANDOFF_BASE + 3;
+H_READ         = HANDOFF_BASE + 4;
+H_SKIP_TO      = HANDOFF_BASE + 5;
+H_SKIP_GEN     = HANDOFF_BASE + 6;
+H_ENGINE_STATE = HANDOFF_BASE + 7;
+H_BEACON_PROTO = HANDOFF_BASE + 8;
+H_OVERRUNS     = HANDOFF_BASE + 9;
+H_UNDERRUNS    = HANDOFF_BASE + 10;
+H_SRATE        = HANDOFF_BASE + 11;
+H_CLAIM        = HANDOFF_BASE + 12;
+H_RELEASED     = HANDOFF_BASE + 13;
+
+// Position of index i in a FIFO of len floats: the beacon's own helper. The
+// indices only grow and pass 2^31 within the hour at 16 ch / 48 kHz, and
+// EEL2's % converts to integers, so it is taken with floor (R-36).
+function fifo_pos(i, len) local(q) (
+  q = i - floor(i / len) * len;
+  q < 0 ? q += len;
+  q >= len ? q -= len;
+  q;
+);
+
+// The first frame boundary at or after i at the capture width. Every READ the
+// engine sets goes through it, and @sample only adds whole frames, so READ is
+// a multiple of nch and a frame never straddles the FIFO's end (R-37). The
+// beacon's skip marks are aligned already; this keeps a start or a resync on
+// a boundary too.
+function align_up(i) local(a) (
+  a = floor(i / nch) * nch;
+  a < i ? a += nch;
+  a;
+);
+
+// Every block, before the width read: is a beacon selected, does it feed, did
+// it mark a skip. OWNER is read first: a claim writes it last, so the slots
+// read after it are in place. WRITE is read before SKIP_GEN and NCH: the
+// beacon marks a skip and a new width before it writes the frames they
+// describe, so every frame below this snapshot is described by what is read
+// next. The snapshot is what @sample may read up to (stale = conservative).
+function beacon_watch() (
+  owner = gmem[H_OWNER];
+  selected = owner != 0;
+  b_write = gmem[H_WRITE];
+  // CLAIM (read only) before SKIP_GEN: a claim writes it before its skip
+  // mark, so a skip seen without its claim reads for one block and is then
+  // restarted by the claim, which ends aligned (R-46).
+  claim = gmem[H_CLAIM];
+  // A paused transport (2, 6) renders no track at all (P4), so while it is
+  // paused the beacon's heartbeat age, skip count and claim wait with it. A
+  // resume then reads as the skip its @init re-run marks, not as a start
+  // (R-42).
+  b_paused = play_state == 2 || play_state == 6;
+  hb = gmem[H_HEARTBEAT];
+  hb != hb_last ? (
+    hb_last = hb;
+    hb_age = 0;
+    b_resume_wait = 0;
+  ) : (
+    !b_paused ? ( hb_age += samplesblock; );
+  );
+  // After a resume, read only once the beacon has beaten since (R-45). The
+  // wait is armed when the pause begins (R-47): no track block runs while
+  // paused, and arming here, after the check above, keeps the beacon's last
+  // block before the pause from clearing it. A normal resume is not held:
+  // the beacon's re-run block, with its heartbeat and its skip, lands first.
+  // A beacon deleted or bypassed during the pause gives silence until it
+  // counts as gone (0.4 s), then the master.
+  (!b_was_paused && b_paused) ? ( b_resume_wait = 1; );
+  b_was_paused = b_paused;
+  // Live: the heartbeat moved within 0.4 s of unpaused time, at this sample
+  // rate (an offline render at another rate is silent, R-21). Feeding: live
+  // and not paused, since what a paused track rendered ahead is never heard
+  // (R-20).
+  b_live = selected && hb_age < 0.4 * srate && gmem[H_SRATE] == srate
+    && gmem[H_BEACON_PROTO] == 1;
+  beacon_feeding = b_live && !b_paused;
+  skip_gen = gmem[H_SKIP_GEN];
+  skip_now = skip_gen != last_skip_gen;
+  claim_now = claim != last_claim;
+  // Kept while paused: the resume's skip and claim may come in a block that
+  // still reads paused, and the first block that reads must see them.
+  !b_paused ? ( last_skip_gen = skip_gen; );
+  !b_paused ? ( last_claim = claim; );
+  // The transport events that throw away what was rendered ahead (P4): play
+  // or record from stopped or paused, or a jump while playing (a seek; a loop
+  // wrap reads as one too, which only lets a claim at a wrap go unprimed). A
+  // claim at one of them has the re-render burst behind it. Any other claim
+  // (a duplicated beacon taking over with the same id, an unbypass within
+  // 0.4 s, Listen off and on mid-play) has none, so it restarts and primes
+  // (R-46). A stop from a pause restarts too: REAPER may not re-run the
+  // beacon's @init then (R-48, not measured).
+  b_jump = (b_last_ps == 1 || b_last_ps == 5) && (play_state == 1 || play_state == 5)
+    && abs(play_position - (b_last_pos + samplesblock / srate)) > 2 * samplesblock / srate;
+  b_event = (b_last_ps == 0 && play_state == 1) || (b_last_ps == 2 && play_state == 1)
+    || (b_last_ps == 0 && play_state == 5) || (b_last_ps == 6 && play_state == 5)
+    || b_jump;
+  b_event_near = b_event || b_event_last;
+  b_event_last = b_event;
+  b_restart = (claim_now && !b_event_near)
+    || ((b_last_ps == 2 || b_last_ps == 6) && play_state == 0);
+  b_last_ps = play_state;
+  b_last_pos = play_position;
+  // A live beacon reads as listening while the transport is paused (R-49).
+  gmem[H_ENGINE_STATE] = selected ? (b_live ? 1 : 2) : 0;
+);
+
+// After the reinit branch, so nch, buf_len and the FIFO's width are this
+// block's: where @sample reads the beacon from (R-19, R-23, R-31).
+function beacon_follow() local(blk, keep) (
+  beacon_feeding ? (
+    blk = max(samplesblock, 1);
+    b_cap = floor(FIFO_LEN / nch);          // FIFO frames at this width
+    b_usable = b_cap * nch;                 // the beacon's usable, in floats
+    // The re-render burst after a play, seek or resume: measured exactly at
+    // 128 to 2048 samples and 96 kHz (ledger I1), at most half the FIFO.
+    b_prime = ceil(0.2 * srate / blk) * blk;
+    b_prime > floor(0.5 * b_cap) ? b_prime = floor(0.5 * b_cap);
+    // One frame of scratch for the display (@sample), in the free gap after
+    // last_active_base's 16 slots and before fft_base, inside the clamp.
+    bfr = 2 * buf_len + 1536;
+    (!b_was_live || owner != b_last_owner || nch != b_last_nch || b_restart) ? (
+      // A start: the beacon was not live last block (a transport pause
+      // leaves it live, R-42), another beacon took over, the width changed
+      // (R-23), or a restart (a claim with no burst behind it, R-46; a stop
+      // from a pause, R-48). A Buffer duration or rate change reinits the
+      // ring but leaves the FIFO and READ alone (R-43). Record silence until
+      // the FIFO holds prime frames: the beacon renders that far ahead of
+      // what is heard, so a beacon switched on mid-play is then aligned.
+      b_read = align_up(skip_now ? gmem[H_SKIP_TO] : b_write);
+      b_priming = 1;
+      b_target = b_prime;
+    ) : (
+      skip_now ? (
+        // A skip (play, seek, resume): the re-render burst is already in the
+        // FIFO, so read at once. Less than a block there: silence, not
+        // counted as underruns, until a block is.
+        b_read = align_up(gmem[H_SKIP_TO]);
+        b_priming = b_write - b_read < blk * nch;
+        b_target = blk;
+      );
+    );
+    // Overrun: the beacon is too far ahead of READ; keep the newest frames.
+    b_write - b_read > 0.9 * b_usable ? (
+      keep = min(floor(0.5 * b_cap), b_prime + floor(0.05 * srate));
+      b_read = align_up(b_write - keep * nch);
+      b_priming = 0;
+    );
+    (b_priming && b_write - b_read >= b_target * nch) ? b_priming = 0;
+    // Quiet: @sample records silence, reads nothing and counts no underrun.
+    b_quiet = b_priming || b_resume_wait;
+    gmem[H_READ] = b_read;
+  );
+  // nch is after the reinit branch here, so nch != b_last_nch next block is
+  // exactly a width change.
+  b_was_live = b_live;
+  b_last_owner = owner;
+  b_last_nch = nch;
+);
+
+// A fresh engine (load, a reinstall after a protocol bump) takes the beacon's
+// heartbeat, skip count and claim as it finds them: none reads as news, no
+// transport edge is assumed, and a beacon already feeding is a start.
+hb_last = gmem[H_HEARTBEAT];
+hb_age = srate;
+last_skip_gen = gmem[H_SKIP_GEN];
+last_claim = gmem[H_CLAIM];
+b_last_ps = -1;
+b_last_pos = 0;
+b_event_last = 0;
+b_live = 0;
+beacon_feeding = 0;
+b_was_live = 0;
+b_priming = 0;
+b_was_paused = 0;
+b_resume_wait = 0;
+b_quiet = 0;
+
 @block
 requested_buf_dur = gmem[4];
 // Pristine/undersized gmem[4] (0 on a cold REAPER boot before the Lua UI
@@ -68,11 +262,17 @@ requested_buf_dur = gmem[4];
 // only a genuinely fresh instance takes the 60s default.
 requested_buf_dur < 10 ? ( requested_buf_dur = last_buf_dur >= 10 ? last_buf_dur : 60; );
 
+// A track beacon selected in OWNER replaces the master as the source (see
+// beacon_watch / beacon_follow in @init).
+beacon_watch();
+
 // Capture nch is Lua-driven (gmem[12] = master.I_NCHAN, written each frame).
 // num_ch on Monitor FX reflects the declared in_pin count (16), not the
 // per-FX Track Channels dropdown, so it's unusable here. Master I_NCHAN is
-// the natural surround-session signal.
-new_nch = gmem[12];
+// the natural surround-session signal. With a beacon selected, fed or not,
+// the width is the beacon's: a change reinits the ring as any width change
+// does, and while the beacon is silent the master is recorded at that width.
+new_nch = selected ? gmem[H_NCH] : gmem[12];
 new_nch < 1 ? new_nch = 2;
 new_nch > MAX_NCH ? new_nch = MAX_NCH;
 
@@ -262,7 +462,7 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   // on startup and removes+reinstalls the JSFX on mismatch, so the user
   // never has to hand-Reload-JS after a version bump. Bump when the
   // Lua<->JSFX gmem contract changes.
-  gmem[10] = 28;
+  gmem[10] = 29;
 
   // Reinit generation (v27): monotonic per-instance counter bumped on
   // every pass through this branch. A full FX reload restarts it, which
@@ -278,6 +478,9 @@ abs(spec_gain_db) > 60 ? spec_gain_db = 0;
   last_buf_dur = buf_dur;
   last_nch = nch;
 );
+
+// Where @sample reads the beacon from, with this block's nch and buf_len.
+beacon_follow();
 
 // Live nch broadcast for Lua Settings readout. Slot 11 is unused by the
 // existing protocol; do not collide with DISP_BUF_OFFSET at slot 18.
@@ -307,12 +510,48 @@ buf_len > 0 ? ( gmem[17] = counter / buf_len; );
 
 @sample
 pause_state = gmem[9];
+// A Recall pause or an export holding the ring: a feeding engine still takes
+// the beacon's frames at the normal rate and drops them, so what plays now is
+// never recorded later and READ keeps its alignment (R-20).
+beacon_feeding && (lock_writehead != 0 || pause_state == 1) && !b_quiet ? (
+  b_read + nch <= b_write ? (
+    b_read += nch;
+    gmem[H_READ] = b_read;
+  );
+);
 lock_writehead == 0 && pause_state != 1 ? (
   // Capture all input channels at this frame, contiguous interleaved layout:
   // [c0 c1 ... c(nch-1)] per frame. counter advances by nch per frame so
   // wraps land on frame boundaries (preserves the existing modulo math).
   // Per-channel activity tracker updates here: cheap threshold check
   // feeds effective_nch detection in @block.
+  beacon_feeding ? (
+    // The beacon's frame from the FIFO in place of spl(). Quiet (priming, or
+    // a resume waiting for the heartbeat): silence, READ stays, no underrun.
+    // A whole frame not written yet: silence and one underrun. Each value
+    // goes where the master's goes, with the same activity check, and to bfr
+    // for the display below (R-7).
+    b_take = !b_quiet && b_read + nch <= b_write;
+    b_take ? (
+      b_pos = FIFO_BASE + fifo_pos(b_read, b_usable);
+    ) : (
+      !b_quiet ? ( gmem[H_UNDERRUNS] += 1; );
+    );
+    i = 0;
+    loop(nch,
+      smp = b_take ? gmem[b_pos + i] : 0;
+      buf_pos[counter + i] = smp;
+      bfr[i] = smp;
+      abs(smp) > 0.000000001 ? ( last_active_base[i] = total_frames; );
+      i += 1;
+    );
+    b_take ? (
+      b_read += nch;
+      gmem[H_READ] = b_read;
+    );
+  ) : (
+  // The master: 0.8.9's capture loop, verbatim, at its old indent so a diff
+  // shows it untouched.
   i = 0;
   loop(nch,
     smp = spl(i);
@@ -323,6 +562,7 @@ lock_writehead == 0 && pause_state != 1 ? (
     // any non-zero sample is a routing signal.
     abs(smp) > 0.000000001 ? ( last_active_base[i] = total_frames; );
     i += 1;
+  );
   );
 
   // Slot position of the frame just written (pre-increment counter --
@@ -350,7 +590,8 @@ lock_writehead == 0 && pause_state != 1 ? (
     fft_in_sum = 0;
     j = 0;
     loop(nch,
-      s_j = spl(j);
+      // A beacon's frame is drawn as recorded, not the master's (R-7).
+      s_j = beacon_feeding ? bfr[j] : spl(j);
       v = abs(s_j);
       v > disp_val ? ( disp_val = v; );
       fft_in_sum += s_j;
